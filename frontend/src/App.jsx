@@ -1,5 +1,6 @@
 import { Link, Navigate, Route, Routes } from 'react-router-dom'
 import { useAuth } from './auth/AuthContext.jsx'
+import Button from './components/Button.jsx'
 import DashboardPage from './pages/DashboardPage.jsx'
 import LoginPage from './pages/LoginPage.jsx'
 import ProjectPage from './pages/ProjectPage.jsx'
@@ -25,9 +26,9 @@ export default function App() {
           </Link>
           <div className="topbar-actions">
             <span className="user-chip">{user.name}</span>
-            <button className="btn btn-ghost" onClick={logout}>
+            <Button variant="ghost" onClick={logout}>
               Log out
-            </button>
+            </Button>
           </div>
         </header>
       )}

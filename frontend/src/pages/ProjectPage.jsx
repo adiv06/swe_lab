@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
+import Button from '../components/Button.jsx'
+import InlineCreateForm from '../components/InlineCreateForm.jsx'
 import { api } from '../mockApi.js'
 
 export default function ProjectPage() {
@@ -9,7 +11,6 @@ export default function ProjectPage() {
   const [myAllocations, setMyAllocations] = useState({})
   const [quantities, setQuantities] = useState({})
   const [error, setError] = useState('')
-  const [newSet, setNewSet] = useState({ name: '', totalUnits: '' })
 
   async function refresh() {
     const [proj, sets] = await Promise.all([api.getProject(id), api.listHardwareSets()])
@@ -54,18 +55,13 @@ export default function ProjectPage() {
     }
   }
 
-  async function handleCreateSet(e) {
-    e.preventDefault()
-    setError('')
-    const total = parseInt(newSet.totalUnits, 10)
-    if (!newSet.name.trim() || Number.isNaN(total) || total < 0) return
-    try {
-      await api.createHardwareSet({ name: newSet.name.trim(), totalUnits: total })
-      setNewSet({ name: '', totalUnits: '' })
-      refresh()
-    } catch (err) {
-      setError(err.message)
+  async function handleCreateSet({ name, totalUnits }) {
+    const total = parseInt(totalUnits, 10)
+    if (!name.trim() || Number.isNaN(total) || total < 0) {
+      throw new Error('name and a non-negative integer total are required')
     }
+    await api.createHardwareSet({ name: name.trim(), totalUnits: total })
+    refresh()
   }
 
   if (!project) return <p className="loading-text">Loading...</p>
@@ -105,12 +101,10 @@ export default function ProjectPage() {
                   />
                 </td>
                 <td>
-                  <button className="btn btn-primary" onClick={() => handleCheckout(hw.id)}>
-                    Check out
-                  </button>
-                  <button className="btn btn-ghost" onClick={() => handleCheckin(hw.id)}>
+                  <Button onClick={() => handleCheckout(hw.id)}>Check out</Button>
+                  <Button variant="ghost" onClick={() => handleCheckin(hw.id)}>
                     Check in
-                  </button>
+                  </Button>
                 </td>
               </tr>
             ))}
@@ -120,23 +114,14 @@ export default function ProjectPage() {
 
       <section>
         <h2>Register a new hardware set</h2>
-        <form onSubmit={handleCreateSet} className="inline-form">
-          <input
-            placeholder="Name"
-            value={newSet.name}
-            onChange={(e) => setNewSet((s) => ({ ...s, name: e.target.value }))}
-          />
-          <input
-            placeholder="Total units"
-            type="number"
-            min="0"
-            value={newSet.totalUnits}
-            onChange={(e) => setNewSet((s) => ({ ...s, totalUnits: e.target.value }))}
-          />
-          <button type="submit" className="btn btn-primary">
-            Add hardware set
-          </button>
-        </form>
+        <InlineCreateForm
+          fields={[
+            { name: 'name', placeholder: 'Name' },
+            { name: 'totalUnits', placeholder: 'Total units', type: 'number', min: 0 },
+          ]}
+          submitLabel="Add hardware set"
+          onSubmit={handleCreateSet}
+        />
       </section>
     </div>
   )
