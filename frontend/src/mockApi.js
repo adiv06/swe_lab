@@ -28,7 +28,14 @@ function seedDb() {
 function loadDb() {
   try {
     const raw = localStorage.getItem(DB_KEY)
-    if (raw) return JSON.parse(raw)
+    if (raw) {
+      const db = JSON.parse(raw)
+      if (db.users?.some((user) => 'password' in user)) {
+        db.users = db.users.map(({ password, ...user }) => user)
+        saveDb(db)
+      }
+      return db
+    }
   } catch {
     // corrupt or inaccessible storage falls through to reseeding
   }
@@ -92,29 +99,34 @@ function serializeProject(project, userId) {
   }
 }
 
+async function authRequest(path, payload) {
+  const response = await fetch(`/api/auth/${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  const data = await response.json()
+  if (!response.ok) {
+    const detail = Array.isArray(data.detail)
+      ? data.detail.map((issue) => issue.msg).join(', ')
+      : data.detail
+    throw new Error(detail || 'Unable to connect to login service')
+  }
+  const db = loadDb()
+  db.users = db.users.filter((user) => user.id !== data.user.id)
+  db.users.push(data.user)
+  saveDb(db)
+  localStorage.setItem(SESSION_KEY, data.user.id)
+  return data
+}
+
 export const api = {
-  async register({ name, email, password }) {
-    const db = loadDb()
-    name = (name || '').trim()
-    email = (email || '').trim().toLowerCase()
-    if (!name || !email || !password) throw new Error('name, email, and password are required')
-    if (db.users.some((u) => u.email === email)) {
-      throw new Error('an account with this email already exists')
-    }
-    const user = { id: uid(), name, email, password }
-    db.users.push(user)
-    saveDb(db)
-    localStorage.setItem(SESSION_KEY, user.id)
-    return delay({ user: { id: user.id, name: user.name, email: user.email } })
+  async register({ name, username, password }) {
+    return authRequest('register', { name, username, password })
   },
 
-  async login({ email, password }) {
-    const db = loadDb()
-    email = (email || '').trim().toLowerCase()
-    const user = db.users.find((u) => u.email === email && u.password === password)
-    if (!user) throw new Error('invalid email or password')
-    localStorage.setItem(SESSION_KEY, user.id)
-    return delay({ user: { id: user.id, name: user.name, email: user.email } })
+  async login({ username, password }) {
+    return authRequest('login', { username, password })
   },
 
   logout() {
@@ -129,7 +141,7 @@ export const api = {
     const db = loadDb()
     const userId = currentUserId()
     const user = db.users.find((u) => u.id === userId)
-    return delay(user ? { id: user.id, name: user.name, email: user.email } : null)
+    return delay(user ? { id: user.id, name: user.name, username: user.username } : null)
   },
 
   async listProjects() {

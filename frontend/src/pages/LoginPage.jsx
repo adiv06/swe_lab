@@ -4,7 +4,7 @@ import { useAuth } from '../auth/AuthContext.jsx'
 import { api } from '../mockApi.js'
 
 export default function LoginPage() {
-  const [email, setEmail] = useState('')
+  const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -16,7 +16,7 @@ export default function LoginPage() {
     setError('')
     setSubmitting(true)
     try {
-      const data = await api.login({ email, password })
+      const data = await api.login({ username, password })
       setSession(data.user)
       navigate('/')
     } catch (err) {
@@ -72,13 +72,13 @@ export default function LoginPage() {
 
           <form onSubmit={handleSubmit}>
             <div className="field">
-              <label htmlFor="email">Email</label>
+              <label htmlFor="username">Username</label>
               <input
-                id="email"
-                type="email"
-                autoComplete="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                id="username"
+                type="text"
+                autoComplete="username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
                 required
               />
             </div>

@@ -5,7 +5,7 @@ import { api } from '../mockApi.js'
 
 export default function RegisterPage() {
   const [name, setName] = useState('')
-  const [email, setEmail] = useState('')
+  const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -17,7 +17,7 @@ export default function RegisterPage() {
     setError('')
     setSubmitting(true)
     try {
-      const data = await api.register({ name, email, password })
+      const data = await api.register({ name, username, password })
       setSession(data.user)
       navigate('/')
     } catch (err) {
@@ -77,13 +77,16 @@ export default function RegisterPage() {
               <input id="name" type="text" value={name} onChange={(e) => setName(e.target.value)} required />
             </div>
             <div className="field">
-              <label htmlFor="email">Email</label>
+              <label htmlFor="username">Username</label>
               <input
-                id="email"
-                type="email"
-                autoComplete="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                id="username"
+                type="text"
+                autoComplete="username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                minLength={3}
+                maxLength={32}
+                pattern="[A-Za-z0-9_]+"
                 required
               />
             </div>
@@ -95,6 +98,7 @@ export default function RegisterPage() {
                 autoComplete="new-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                minLength={8}
                 required
               />
             </div>

@@ -4,13 +4,53 @@ import os
 from functools import lru_cache
 
 from fastapi import Depends, FastAPI, HTTPException, status
-from pydantic import BaseModel, JsonValue
+from pydantic import BaseModel, Field, JsonValue, field_validator
 from pymongo import MongoClient
-from pymongo.errors import PyMongoError
+from pymongo.errors import DuplicateKeyError, PyMongoError
+
+from app.auth import AuthStore
 
 
 class ValuePayload(BaseModel):
     value: JsonValue
+
+
+class RegisterPayload(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    username: str = Field(pattern=r"^[a-zA-Z0-9_]{3,32}$")
+    password: str = Field(min_length=8, max_length=128)
+
+    @field_validator("name")
+    @classmethod
+    def clean_name(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("name is required")
+        return value
+
+    @field_validator("username")
+    @classmethod
+    def normalize_username(cls, value: str) -> str:
+        return value.lower()
+
+
+class LoginPayload(BaseModel):
+    username: str
+    password: str
+
+
+class PublicUser(BaseModel):
+    id: str
+    name: str
+    username: str
+
+
+class AuthResponse(BaseModel):
+    user: PublicUser
+
+
+def public_user(user: dict) -> PublicUser:
+    return PublicUser(id=user["_id"], name=user["name"], username=user["_id"])
 
 
 class MongoStore:
@@ -18,6 +58,7 @@ class MongoStore:
         self.client = MongoClient(uri, serverSelectionTimeoutMS=5000)
         self.database = self.client[database]
         self.collection = self.database[collection]
+        self.auth = AuthStore(self.database)
 
     def get(self, key: str) -> dict | None:
         return self.collection.find_one({"_id": key}, {"value": 1})
@@ -50,6 +91,30 @@ def get_store() -> MongoStore:
 
 
 app = FastAPI(title="MongoDB key-value service")
+
+
+@app.post("/api/auth/register", response_model=AuthResponse, status_code=201)
+def register(
+    payload: RegisterPayload, store: MongoStore = Depends(get_store)
+) -> AuthResponse:
+    try:
+        user = store.auth.register(payload.username, payload.name, payload.password)
+    except DuplicateKeyError as exc:
+        raise HTTPException(status_code=409, detail="Username already exists") from exc
+    except PyMongoError as exc:
+        raise HTTPException(status_code=503, detail="MongoDB unavailable") from exc
+    return AuthResponse(user=public_user(user))
+
+
+@app.post("/api/auth/login", response_model=AuthResponse)
+def login(payload: LoginPayload, store: MongoStore = Depends(get_store)) -> AuthResponse:
+    try:
+        user = store.auth.login(payload.username.strip().lower(), payload.password)
+        if user is None:
+            raise HTTPException(status_code=401, detail="Invalid username or password")
+    except PyMongoError as exc:
+        raise HTTPException(status_code=503, detail="MongoDB unavailable") from exc
+    return AuthResponse(user=public_user(user))
 
 
 @app.get("/health")

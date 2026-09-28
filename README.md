@@ -50,5 +50,14 @@ curl.exe http://localhost:8000/health
 
 Interactive API documentation is at `http://localhost:8000/docs`.
 
+## Username and password login
+
+The frontend registration and login forms call `POST /api/auth/register` and
+`POST /api/auth/login`. Users are stored in the `users` MongoDB collection with
+hashed passwords. The login response contains only the public user profile.
+Run the backend on port 8000, then run `npm run dev` in `frontend`; Vite forwards
+`/api` requests to the backend. Project and hardware data in the frontend still
+uses browser storage.
+
 To add the five repeatable demo records (`demo-user-001` through
 `demo-user-005`) after setting `MONGODB_URI`, run `python -m scripts.seed_demo`.

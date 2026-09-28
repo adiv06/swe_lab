@@ -2,8 +2,9 @@ import unittest
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
-from pymongo.errors import ServerSelectionTimeoutError
+from pymongo.errors import DuplicateKeyError, ServerSelectionTimeoutError
 
+from app.auth import AuthStore, verify_password
 from app.main import MongoStore, app, get_store
 
 
@@ -11,6 +12,7 @@ class FakeStore:
     def __init__(self):
         self.values = {}
         self.available = True
+        self.auth = AuthStore(FakeDatabase())
 
     def ping(self):
         if not self.available:
@@ -27,6 +29,29 @@ class FakeStore:
         if not self.available:
             raise ServerSelectionTimeoutError("unavailable")
         self.values[key] = value
+
+
+class FakeUsers:
+    def __init__(self):
+        self.documents = {}
+
+    def insert_one(self, document):
+        if document["_id"] in self.documents:
+            raise DuplicateKeyError("duplicate username")
+        self.documents[document["_id"]] = document
+
+    def find_one(self, query):
+        return self.documents.get(query["_id"])
+
+
+class FakeDatabase:
+    def __init__(self):
+        self.users = FakeUsers()
+
+    def __getitem__(self, name):
+        if name == "users":
+            return self.users
+        raise KeyError(name)
 
 
 class ApiTests(unittest.TestCase):
@@ -59,6 +84,27 @@ class ApiTests(unittest.TestCase):
             self.client.put("/items/example", json={"value": 1}).status_code,
             503,
         )
+
+    def test_register_and_login_store_only_password_hash(self):
+        account = {"name": "Ada", "username": "Ada_123", "password": "secret123"}
+        registered = self.client.post("/api/auth/register", json=account)
+        self.assertEqual(registered.status_code, 201)
+        self.assertEqual(registered.json()["user"]["username"], "ada_123")
+        stored = self.store.auth.users.documents["ada_123"]
+        self.assertNotIn("password", stored)
+        self.assertTrue(verify_password("secret123", stored["password_hash"]))
+        self.assertEqual(self.client.post("/api/auth/register", json=account).status_code, 409)
+        self.assertEqual(
+            self.client.post(
+                "/api/auth/login", json={"username": "ADA_123", "password": "wrong123"}
+            ).status_code,
+            401,
+        )
+        logged_in = self.client.post(
+            "/api/auth/login", json={"username": "ADA_123", "password": "secret123"}
+        )
+        self.assertEqual(logged_in.status_code, 200)
+        self.assertEqual(logged_in.json()["user"]["id"], "ada_123")
 
 
 class MongoStoreTests(unittest.TestCase):
