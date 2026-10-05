@@ -56,8 +56,31 @@ The frontend registration and login forms call `POST /api/auth/register` and
 `POST /api/auth/login`. Users are stored in the `users` MongoDB collection with
 hashed passwords. The login response contains only the public user profile.
 Run the backend on port 8000, then run `npm run dev` in `frontend`; Vite forwards
-`/api` requests to the backend. Project and hardware data in the frontend still
-uses browser storage.
+`/api` requests to the backend. Project data in the frontend still uses browser
+storage.
 
-To add the five repeatable demo records (`demo-user-001` through
-`demo-user-005`) after setting `MONGODB_URI`, run `python -m scripts.seed_demo`.
+## Hardware pool
+
+Hardware sets live in the `hardware_sets` collection. Each set has a total
+`capacity`, the units still `available` in the pool, and `max_per_user`, the
+most units one user may hold at once. The `allocations` collection links a
+user ID to a hardware set and the number of units that user holds.
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /api/hardware?user_id=ada` | List sets; `held` is what that user holds |
+| `POST /api/hardware` | Create a set: `{"name", "capacity", "max_per_user"}` |
+| `GET /api/hardware/{id}/allocations` | Which users hold units of a set |
+| `POST /api/hardware/{id}/checkout` | Claim units: `{"user_id", "quantity"}` |
+| `POST /api/hardware/{id}/checkin` | Return units to the pool: `{"user_id", "quantity"}` |
+
+A checkout that would exceed the units available or the per-user cap, or a
+check-in of more units than the user holds, returns `409`. An unknown user or
+hardware set returns `404`.
+
+## Demo data
+
+After setting `MONGODB_URI`, run `python -m scripts.seed_demo`. It adds the five
+key-value demo records (`demo-user-001` through `demo-user-005`), login accounts
+`ada`, `grace` and `alan` (password `password123`), four hardware sets, and a
+few allocations. Re-running it resets the demo hardware pool.

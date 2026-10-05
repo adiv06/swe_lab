@@ -8,7 +8,7 @@ import { api } from '../mockApi.js'
 
 const FEATURES = [
   { icon: '✓', text: 'Real-time available units per hardware set' },
-  { icon: '↻', text: 'Simple checkout / check-in per project' },
+  { icon: '↻', text: 'Simple checkout / check-in with per-user caps' },
   { icon: '◎', text: 'A clear record of who holds what' },
 ]
 

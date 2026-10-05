@@ -4,11 +4,13 @@ import os
 from functools import lru_cache
 
 from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, JsonValue, field_validator
 from pymongo import MongoClient
 from pymongo.errors import DuplicateKeyError, PyMongoError
 
 from app.auth import AuthStore
+from app.hardware import HardwareError, HardwareStore
 
 
 class ValuePayload(BaseModel):
@@ -49,6 +51,42 @@ class AuthResponse(BaseModel):
     user: PublicUser
 
 
+class HardwareSetPayload(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    capacity: int = Field(ge=0)
+    max_per_user: int = Field(ge=1)
+
+
+class QuantityPayload(BaseModel):
+    user_id: str = Field(min_length=1)
+    quantity: int = Field(ge=1)
+
+
+class HardwareSet(BaseModel):
+    id: str
+    name: str
+    capacity: int
+    available: int
+    max_per_user: int
+    held: int = 0
+
+
+class Allocation(BaseModel):
+    user_id: str
+    quantity: int
+
+
+def hardware_set(document: dict, held: int = 0) -> HardwareSet:
+    return HardwareSet(
+        id=document["_id"],
+        name=document["name"],
+        capacity=document["capacity"],
+        available=document["available"],
+        max_per_user=document["max_per_user"],
+        held=held,
+    )
+
+
 def public_user(user: dict) -> PublicUser:
     return PublicUser(id=user["_id"], name=user["name"], username=user["_id"])
 
@@ -59,6 +97,7 @@ class MongoStore:
         self.database = self.client[database]
         self.collection = self.database[collection]
         self.auth = AuthStore(self.database)
+        self.hardware = HardwareStore(self.database)
 
     def get(self, key: str) -> dict | None:
         return self.collection.find_one({"_id": key}, {"value": 1})
@@ -93,6 +132,16 @@ def get_store() -> MongoStore:
 app = FastAPI(title="MongoDB key-value service")
 
 
+@app.exception_handler(HardwareError)
+def hardware_error(_request, exc: HardwareError) -> JSONResponse:
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.message})
+
+
+@app.exception_handler(PyMongoError)
+def mongo_error(_request, _exc: PyMongoError) -> JSONResponse:
+    return JSONResponse(status_code=503, content={"detail": "MongoDB unavailable"})
+
+
 @app.post("/api/auth/register", response_model=AuthResponse, status_code=201)
 def register(
     payload: RegisterPayload, store: MongoStore = Depends(get_store)
@@ -115,6 +164,55 @@ def login(payload: LoginPayload, store: MongoStore = Depends(get_store)) -> Auth
     except PyMongoError as exc:
         raise HTTPException(status_code=503, detail="MongoDB unavailable") from exc
     return AuthResponse(user=public_user(user))
+
+
+@app.get("/api/hardware", response_model=list[HardwareSet])
+def list_hardware(
+    user_id: str | None = None, store: MongoStore = Depends(get_store)
+) -> list[HardwareSet]:
+    held = store.hardware.held_by(user_id) if user_id else {}
+    return [
+        hardware_set(document, held.get(document["_id"], 0))
+        for document in store.hardware.list_sets()
+    ]
+
+
+@app.post("/api/hardware", response_model=HardwareSet, status_code=201)
+def create_hardware(
+    payload: HardwareSetPayload, store: MongoStore = Depends(get_store)
+) -> HardwareSet:
+    document = store.hardware.create_set(
+        payload.name.strip(), payload.capacity, payload.max_per_user
+    )
+    return hardware_set(document)
+
+
+@app.get("/api/hardware/{hardware_id}/allocations", response_model=list[Allocation])
+def list_allocations(
+    hardware_id: str, store: MongoStore = Depends(get_store)
+) -> list[Allocation]:
+    return [
+        Allocation(user_id=a["user_id"], quantity=a["quantity"])
+        for a in store.hardware.allocations_for_set(hardware_id)
+    ]
+
+
+@app.post("/api/hardware/{hardware_id}/checkout", response_model=HardwareSet)
+def checkout(
+    hardware_id: str, payload: QuantityPayload, store: MongoStore = Depends(get_store)
+) -> HardwareSet:
+    document = store.hardware.checkout(hardware_id, payload.user_id, payload.quantity)
+    held = store.hardware.held_by(payload.user_id).get(hardware_id, 0)
+    return hardware_set(document, held)
+
+
+@app.post("/api/hardware/{hardware_id}/checkin", response_model=HardwareSet)
+def checkin(
+    hardware_id: str, payload: QuantityPayload, store: MongoStore = Depends(get_store)
+) -> HardwareSet:
+    document = store.hardware.checkin(hardware_id, payload.user_id, payload.quantity)
+    held = store.hardware.held_by(payload.user_id).get(hardware_id, 0)
+    return hardware_set(document, held)
 
 
 @app.get("/health")
