@@ -8,7 +8,6 @@ export default function ProjectPage() {
   const { id } = useParams()
   const [project, setProject] = useState(null)
   const [hardwareSets, setHardwareSets] = useState([])
-  const [myAllocations, setMyAllocations] = useState({})
   const [quantities, setQuantities] = useState({})
   const [error, setError] = useState('')
 
@@ -16,17 +15,10 @@ export default function ProjectPage() {
     const [proj, sets] = await Promise.all([api.getProject(id), api.listHardwareSets()])
     setProject(proj)
     setHardwareSets(sets)
-    const entries = await Promise.all(sets.map(async (hw) => [hw.id, await api.listAllocations(hw.id)]))
-    const map = {}
-    for (const [hwId, allocs] of entries) {
-      const mine = allocs.find((a) => a.projectId === id)
-      map[hwId] = mine ? mine.quantity : 0
-    }
-    setMyAllocations(map)
   }
 
   useEffect(() => {
-    refresh()
+    refresh().catch((err) => setError(err.message))
   }, [id])
 
   async function handleCheckout(hwId) {
@@ -34,7 +26,7 @@ export default function ProjectPage() {
     const quantity = parseInt(quantities[hwId], 10)
     if (!quantity || quantity <= 0) return
     try {
-      await api.checkout(hwId, id, quantity)
+      await api.checkout(hwId, quantity)
       setQuantities((q) => ({ ...q, [hwId]: '' }))
       refresh()
     } catch (err) {
@@ -47,7 +39,7 @@ export default function ProjectPage() {
     const quantity = parseInt(quantities[hwId], 10)
     if (!quantity || quantity <= 0) return
     try {
-      await api.checkin(hwId, id, quantity)
+      await api.checkin(hwId, quantity)
       setQuantities((q) => ({ ...q, [hwId]: '' }))
       refresh()
     } catch (err) {
@@ -55,12 +47,13 @@ export default function ProjectPage() {
     }
   }
 
-  async function handleCreateSet({ name, totalUnits }) {
-    const total = parseInt(totalUnits, 10)
-    if (!name.trim() || Number.isNaN(total) || total < 0) {
-      throw new Error('name and a non-negative integer total are required')
+  async function handleCreateSet({ name, capacity, maxPerUser }) {
+    const total = parseInt(capacity, 10)
+    const cap = parseInt(maxPerUser, 10)
+    if (!name.trim() || Number.isNaN(total) || total < 0 || Number.isNaN(cap) || cap < 1) {
+      throw new Error('name, a non-negative capacity and a per-user cap of at least 1 are required')
     }
-    await api.createHardwareSet({ name: name.trim(), totalUnits: total })
+    await api.createHardwareSet({ name: name.trim(), capacity: total, maxPerUser: cap })
     refresh()
   }
 
@@ -78,9 +71,10 @@ export default function ProjectPage() {
           <thead>
             <tr>
               <th>Set</th>
-              <th>Total</th>
+              <th>Capacity</th>
               <th>Available</th>
-              <th>Held by this project</th>
+              <th>Per-user cap</th>
+              <th>Held by you</th>
               <th>Quantity</th>
               <th></th>
             </tr>
@@ -89,9 +83,10 @@ export default function ProjectPage() {
             {hardwareSets.map((hw) => (
               <tr key={hw.id}>
                 <td>{hw.name}</td>
-                <td>{hw.totalUnits}</td>
-                <td>{hw.availableUnits}</td>
-                <td>{myAllocations[hw.id] || 0}</td>
+                <td>{hw.capacity}</td>
+                <td>{hw.available}</td>
+                <td>{hw.maxPerUser}</td>
+                <td>{hw.held}</td>
                 <td>
                   <input
                     type="number"
@@ -117,7 +112,8 @@ export default function ProjectPage() {
         <InlineCreateForm
           fields={[
             { name: 'name', placeholder: 'Name' },
-            { name: 'totalUnits', placeholder: 'Total units', type: 'number', min: 0 },
+            { name: 'capacity', placeholder: 'Capacity', type: 'number', min: 0 },
+            { name: 'maxPerUser', placeholder: 'Per-user cap', type: 'number', min: 1 },
           ]}
           submitLabel="Add hardware set"
           onSubmit={handleCreateSet}
