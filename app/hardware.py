@@ -111,6 +111,7 @@ class HardwareStore:
         )
         if updated is None:
             self.allocations.update_one({"_id": key}, {"$inc": {"quantity": -quantity}})
+            self.allocations.delete_one({"_id": key, "quantity": 0})
             available = self._get_set(hardware_id)["available"]
             raise ConflictError(f"Only {available} unit(s) available")
         return updated
