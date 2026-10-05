@@ -132,6 +132,16 @@ def get_store() -> MongoStore:
 app = FastAPI(title="MongoDB key-value service")
 
 
+@app.exception_handler(HardwareError)
+def hardware_error(_request, exc: HardwareError) -> JSONResponse:
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.message})
+
+
+@app.exception_handler(PyMongoError)
+def mongo_error(_request, _exc: PyMongoError) -> JSONResponse:
+    return JSONResponse(status_code=503, content={"detail": "MongoDB unavailable"})
+
+
 def require_database(store: MongoStore) -> None:
     try:
         store.ping()

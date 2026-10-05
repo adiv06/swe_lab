@@ -235,6 +235,9 @@ class HardwareApiTests(unittest.TestCase):
         listed = self.client.get("/api/hardware", params={"user_id": "grace"}).json()
         self.assertEqual(listed[0]["held"], 0)
         self.assertEqual(listed[0]["available"], 2)
+        self.assertNotIn(
+            f"{self.hw_id}:grace", self.store.database["allocations"].documents
+        )
 
     def test_checkin_returns_units_to_pool(self):
         self.checkout("ada", 3)
