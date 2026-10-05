@@ -1,4 +1,4 @@
-import { useState } from 'react'
+﻿import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import AuthLayout from '../components/AuthLayout.jsx'
 import Button from '../components/Button.jsx'
@@ -15,7 +15,7 @@ const FEATURES = [
 
 const ORBIT_ICONS = ['🔧', '📦', '🔌']
 
-export default function LoginPage() {
+export default function LoginPage({ serviceStatus }) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -48,6 +48,7 @@ export default function LoginPage() {
     >
       <h1>Welcome back</h1>
       <p className="auth-subtitle">Log in to see your projects and hardware.</p>
+      <ServiceStatus status={serviceStatus} />
 
       <form onSubmit={handleSubmit}>
         <FormField
@@ -71,67 +72,15 @@ export default function LoginPage() {
 
         {error && <p className="error">{error}</p>}
 
-        <Button type="submit" className="auth-submit" disabled={submitting}>
+        <Button type="submit" className="auth-submit" disabled={submitting || serviceStatus !== 'online'}>
           {submitting ? 'Logging in...' : 'Log in'}
         </Button>
       </form>
 
-<<<<<<< HEAD
-        <div className="auth-orbit">
-          <div className="orbit-node n1">🔧</div>
-          <div className="orbit-node n2">📦</div>
-          <div className="orbit-node n3">🔌</div>
-        </div>
-      </div>
-
-      <div className="auth-form-panel">
-        <div className="auth-card">
-          <h1>Welcome back</h1>
-          <p className="auth-subtitle">Log in to see your projects and hardware.</p>
-          <ServiceStatus status={serviceStatus} />
-
-          <form onSubmit={handleSubmit}>
-            <div className="field">
-              <label htmlFor="username">Username</label>
-              <input
-                id="username"
-                type="text"
-                autoComplete="username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                required
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="password">Password</label>
-              <input
-                id="password"
-                type="password"
-                autoComplete="current-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
-            </div>
-
-            {error && <p className="error">{error}</p>}
-
-            <button type="submit" className="btn btn-primary auth-submit" disabled={submitting || serviceStatus !== 'online'}>
-              {submitting ? 'Logging in...' : 'Log in'}
-            </button>
-          </form>
-
-          <p className="auth-switch">
-            Need an account? <Link to="/register">Register</Link>
-          </p>
-        </div>
-      </div>
-    </div>
-=======
       <p className="auth-switch">
         Need an account? <Link to="/register">Register</Link>
       </p>
     </AuthLayout>
->>>>>>> origin/main
+
   )
 }

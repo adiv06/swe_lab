@@ -1,4 +1,4 @@
-import { useState } from 'react'
+﻿import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import AuthLayout from '../components/AuthLayout.jsx'
 import Button from '../components/Button.jsx'
@@ -15,7 +15,7 @@ const FEATURES = [
 
 const ORBIT_ICONS = ['🧰', '🖥️', '🛰️']
 
-export default function RegisterPage() {
+export default function RegisterPage({ serviceStatus }) {
   const [name, setName] = useState('')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -49,6 +49,7 @@ export default function RegisterPage() {
     >
       <h1>Create your account</h1>
       <p className="auth-subtitle">Join or start managing a project's hardware.</p>
+      <ServiceStatus status={serviceStatus} />
 
       <form onSubmit={handleSubmit}>
         <FormField
@@ -84,75 +85,15 @@ export default function RegisterPage() {
 
         {error && <p className="error">{error}</p>}
 
-        <Button type="submit" className="auth-submit" disabled={submitting}>
+        <Button type="submit" className="auth-submit" disabled={submitting || serviceStatus !== 'online'}>
           {submitting ? 'Creating account...' : 'Register'}
         </Button>
       </form>
 
-<<<<<<< HEAD
-        <div className="auth-orbit">
-          <div className="orbit-node n1">🧰</div>
-          <div className="orbit-node n2">🖥️</div>
-          <div className="orbit-node n3">🛰️</div>
-        </div>
-      </div>
-
-      <div className="auth-form-panel">
-        <div className="auth-card">
-          <h1>Create your account</h1>
-          <p className="auth-subtitle">Join or start managing a project's hardware.</p>
-          <ServiceStatus status={serviceStatus} />
-
-          <form onSubmit={handleSubmit}>
-            <div className="field">
-              <label htmlFor="name">Name</label>
-              <input id="name" type="text" value={name} onChange={(e) => setName(e.target.value)} required />
-            </div>
-            <div className="field">
-              <label htmlFor="username">Username</label>
-              <input
-                id="username"
-                type="text"
-                autoComplete="username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                minLength={3}
-                maxLength={32}
-                pattern="[A-Za-z0-9_]+"
-                required
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="password">Password</label>
-              <input
-                id="password"
-                type="password"
-                autoComplete="new-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                minLength={8}
-                required
-              />
-            </div>
-
-            {error && <p className="error">{error}</p>}
-
-            <button type="submit" className="btn btn-primary auth-submit" disabled={submitting || serviceStatus !== 'online'}>
-              {submitting ? 'Creating account...' : 'Register'}
-            </button>
-          </form>
-
-          <p className="auth-switch">
-            Already have an account? <Link to="/login">Log in</Link>
-          </p>
-        </div>
-      </div>
-    </div>
-=======
       <p className="auth-switch">
         Already have an account? <Link to="/login">Log in</Link>
       </p>
     </AuthLayout>
->>>>>>> origin/main
+
   )
 }
