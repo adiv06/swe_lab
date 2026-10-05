@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import Button from '../components/Button.jsx'
+import InlineCreateForm from '../components/InlineCreateForm.jsx'
+import ProjectList from '../components/ProjectList.jsx'
 import { api } from '../mockApi.js'
 
 export default function DashboardPage() {
   const [myProjects, setMyProjects] = useState([])
   const [otherProjects, setOtherProjects] = useState([])
-  const [newProjectName, setNewProjectName] = useState('')
   const [error, setError] = useState('')
 
   async function refresh() {
@@ -18,17 +20,10 @@ export default function DashboardPage() {
     refresh()
   }, [])
 
-  async function handleCreate(e) {
-    e.preventDefault()
-    setError('')
-    if (!newProjectName.trim()) return
-    try {
-      await api.createProject(newProjectName.trim())
-      setNewProjectName('')
-      refresh()
-    } catch (err) {
-      setError(err.message)
-    }
+  async function handleCreate({ name }) {
+    if (!name.trim()) throw new Error('name is required')
+    await api.createProject(name.trim())
+    refresh()
   }
 
   async function handleJoin(id) {
@@ -43,46 +38,40 @@ export default function DashboardPage() {
 
   return (
     <div>
+      {error && <p className="error">{error}</p>}
+
       <section>
         <h2>My projects</h2>
-        {myProjects.length === 0 && <p>You haven't joined any projects yet.</p>}
-        <ul className="project-list">
-          {myProjects.map((p) => (
-            <li key={p.id}>
-              <Link to={`/projects/${p.id}`}>{p.name}</Link>
-            </li>
-          ))}
-        </ul>
+        <ProjectList
+          projects={myProjects}
+          emptyText="You haven't joined any projects yet."
+          renderItem={(p) => <Link to={`/projects/${p.id}`}>{p.name}</Link>}
+        />
       </section>
 
       <section>
         <h2>Create a project</h2>
-        <form onSubmit={handleCreate} className="inline-form">
-          <input
-            value={newProjectName}
-            onChange={(e) => setNewProjectName(e.target.value)}
-            placeholder="Project name"
-          />
-          <button type="submit" className="btn btn-primary">
-            Create
-          </button>
-        </form>
-        {error && <p className="error">{error}</p>}
+        <InlineCreateForm
+          fields={[{ name: 'name', placeholder: 'Project name' }]}
+          submitLabel="Create"
+          onSubmit={handleCreate}
+        />
       </section>
 
       <section>
         <h2>Other projects</h2>
-        {otherProjects.length === 0 && <p>No other projects to join.</p>}
-        <ul className="project-list">
-          {otherProjects.map((p) => (
-            <li key={p.id}>
+        <ProjectList
+          projects={otherProjects}
+          emptyText="No other projects to join."
+          renderItem={(p) => (
+            <>
               {p.name}
-              <button className="btn btn-ghost" onClick={() => handleJoin(p.id)}>
+              <Button variant="ghost" onClick={() => handleJoin(p.id)}>
                 Join
-              </button>
-            </li>
-          ))}
-        </ul>
+              </Button>
+            </>
+          )}
+        />
       </section>
     </div>
   )

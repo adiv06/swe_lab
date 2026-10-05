@@ -1,10 +1,21 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import AuthLayout from '../components/AuthLayout.jsx'
+import Button from '../components/Button.jsx'
+import FormField from '../components/FormField.jsx'
 import { useAuth } from '../auth/AuthContext.jsx'
 import { api } from '../mockApi.js'
 import ServiceStatus from '../ServiceStatus.jsx'
 
-export default function LoginPage({ serviceStatus }) {
+const FEATURES = [
+  { icon: '✓', text: 'Real-time available units per hardware set' },
+  { icon: '↻', text: 'Simple checkout / check-in with per-user caps' },
+  { icon: '◎', text: 'A clear record of who holds what' },
+]
+
+const ORBIT_ICONS = ['🔧', '📦', '🔌']
+
+export default function LoginPage() {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -29,37 +40,43 @@ export default function LoginPage({ serviceStatus }) {
   }
 
   return (
-    <div className="auth-split">
-      <div className="auth-brand-panel">
-        <div className="auth-grid-overlay" />
+    <AuthLayout
+      headline="Share hardware across every project, without the spreadsheet."
+      description="Track how many units of each kit are available, who's holding what, and check gear in and out as your team's work changes."
+      features={FEATURES}
+      orbitIcons={ORBIT_ICONS}
+    >
+      <h1>Welcome back</h1>
+      <p className="auth-subtitle">Log in to see your projects and hardware.</p>
 
-        <div className="auth-brand-top">
-          <span className="brand-mark">HA</span> Hardware Allocator
-        </div>
+      <form onSubmit={handleSubmit}>
+        <FormField
+          id="username"
+          label="Username"
+          type="text"
+          autoComplete="username"
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+          required
+        />
+        <FormField
+          id="password"
+          label="Password"
+          type="password"
+          autoComplete="current-password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          required
+        />
 
-        <div className="auth-brand-mid">
-          <h1>Share hardware across every project, without the spreadsheet.</h1>
-          <p>
-            Track how many units of each kit are available, who's holding what, and check
-            gear in and out as your team's work changes.
-          </p>
+        {error && <p className="error">{error}</p>}
 
-          <ul className="auth-feature-list">
-            <li>
-              <span className="auth-feature-icon">✓</span>
-              Real-time available units per hardware set
-            </li>
-            <li>
-              <span className="auth-feature-icon">↻</span>
-              Simple checkout / check-in per project
-            </li>
-            <li>
-              <span className="auth-feature-icon">◎</span>
-              A clear record of who holds what
-            </li>
-          </ul>
-        </div>
+        <Button type="submit" className="auth-submit" disabled={submitting}>
+          {submitting ? 'Logging in...' : 'Log in'}
+        </Button>
+      </form>
 
+<<<<<<< HEAD
         <div className="auth-orbit">
           <div className="orbit-node n1">🔧</div>
           <div className="orbit-node n2">📦</div>
@@ -110,5 +127,11 @@ export default function LoginPage({ serviceStatus }) {
         </div>
       </div>
     </div>
+=======
+      <p className="auth-switch">
+        Need an account? <Link to="/register">Register</Link>
+      </p>
+    </AuthLayout>
+>>>>>>> origin/main
   )
 }

@@ -1,10 +1,21 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import AuthLayout from '../components/AuthLayout.jsx'
+import Button from '../components/Button.jsx'
+import FormField from '../components/FormField.jsx'
 import { useAuth } from '../auth/AuthContext.jsx'
 import { api } from '../mockApi.js'
 import ServiceStatus from '../ServiceStatus.jsx'
 
-export default function RegisterPage({ serviceStatus }) {
+const FEATURES = [
+  { icon: '＋', text: 'Create a project and invite your team' },
+  { icon: '✓', text: 'See available units before you request them' },
+  { icon: '↻', text: "Check hardware back in when you're done" },
+]
+
+const ORBIT_ICONS = ['🧰', '🖥️', '🛰️']
+
+export default function RegisterPage() {
   const [name, setName] = useState('')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -30,37 +41,55 @@ export default function RegisterPage({ serviceStatus }) {
   }
 
   return (
-    <div className="auth-split">
-      <div className="auth-brand-panel">
-        <div className="auth-grid-overlay" />
+    <AuthLayout
+      headline="Set up your project in under a minute."
+      description="Create an account, start or join a project, and start checking out the hardware your team needs."
+      features={FEATURES}
+      orbitIcons={ORBIT_ICONS}
+    >
+      <h1>Create your account</h1>
+      <p className="auth-subtitle">Join or start managing a project's hardware.</p>
 
-        <div className="auth-brand-top">
-          <span className="brand-mark">HA</span> Hardware Allocator
-        </div>
+      <form onSubmit={handleSubmit}>
+        <FormField
+          id="name"
+          label="Name"
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          required
+        />
+        <FormField
+          id="username"
+          label="Username"
+          type="text"
+          autoComplete="username"
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+          minLength={3}
+          maxLength={32}
+          pattern="[A-Za-z0-9_]+"
+          required
+        />
+        <FormField
+          id="password"
+          label="Password"
+          type="password"
+          autoComplete="new-password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          minLength={8}
+          required
+        />
 
-        <div className="auth-brand-mid">
-          <h1>Set up your project in under a minute.</h1>
-          <p>
-            Create an account, start or join a project, and start checking out the hardware
-            your team needs.
-          </p>
+        {error && <p className="error">{error}</p>}
 
-          <ul className="auth-feature-list">
-            <li>
-              <span className="auth-feature-icon">＋</span>
-              Create a project and invite your team
-            </li>
-            <li>
-              <span className="auth-feature-icon">✓</span>
-              See available units before you request them
-            </li>
-            <li>
-              <span className="auth-feature-icon">↻</span>
-              Check hardware back in when you're done
-            </li>
-          </ul>
-        </div>
+        <Button type="submit" className="auth-submit" disabled={submitting}>
+          {submitting ? 'Creating account...' : 'Register'}
+        </Button>
+      </form>
 
+<<<<<<< HEAD
         <div className="auth-orbit">
           <div className="orbit-node n1">🧰</div>
           <div className="orbit-node n2">🖥️</div>
@@ -119,5 +148,11 @@ export default function RegisterPage({ serviceStatus }) {
         </div>
       </div>
     </div>
+=======
+      <p className="auth-switch">
+        Already have an account? <Link to="/login">Log in</Link>
+      </p>
+    </AuthLayout>
+>>>>>>> origin/main
   )
 }

@@ -1,7 +1,5 @@
-// In-browser stand-in for the backend described in the spec. All state lives in
-// localStorage so the app is fully usable without a server, while still enforcing
-// the same allocation rule a real API would: available = total - allocated,
-// checkout can't exceed available, check-in can't exceed what a project holds.
+// Accounts and hardware go through the backend API (MongoDB). Projects are still
+// an in-browser stand-in kept in localStorage.
 
 const DB_KEY = 'hw_allocator_db'
 const SESSION_KEY = 'hw_allocator_session'
@@ -14,12 +12,6 @@ function seedDb() {
   const db = {
     users: [],
     projects: [],
-    hardwareSets: [
-      { id: uid(), name: 'Arduino Kits', totalUnits: 10 },
-      { id: uid(), name: 'Raspberry Pi Boards', totalUnits: 6 },
-      { id: uid(), name: 'VR Headsets', totalUnits: 4 },
-    ],
-    allocations: [],
   }
   saveDb(db)
   return db
@@ -68,27 +60,6 @@ function requireUser(db) {
   return user
 }
 
-function allocatedTotal(db, hardwareSetId) {
-  return db.allocations
-    .filter((a) => a.hardwareSetId === hardwareSetId)
-    .reduce((sum, a) => sum + a.quantity, 0)
-}
-
-function allocationFor(db, hardwareSetId, projectId) {
-  return db.allocations.find((a) => a.hardwareSetId === hardwareSetId && a.projectId === projectId)
-}
-
-function serializeHardwareSet(db, hw) {
-  const allocated = allocatedTotal(db, hw.id)
-  return {
-    id: hw.id,
-    name: hw.name,
-    totalUnits: hw.totalUnits,
-    allocatedUnits: allocated,
-    availableUnits: hw.totalUnits - allocated,
-  }
-}
-
 function serializeProject(project, userId) {
   return {
     id: project.id,
@@ -99,19 +70,35 @@ function serializeProject(project, userId) {
   }
 }
 
-async function authRequest(path, payload) {
-  const response = await fetch(`/api/auth/${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+async function request(path, { method = 'GET', body } = {}) {
+  const response = await fetch(`/api${path}`, {
+    method,
+    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
   })
-  const data = await response.json()
+  const data = await response.json().catch(() => ({}))
   if (!response.ok) {
     const detail = Array.isArray(data.detail)
       ? data.detail.map((issue) => issue.msg).join(', ')
       : data.detail
-    throw new Error(detail || 'Unable to connect to login service')
+    throw new Error(detail || 'Unable to reach the server')
   }
+  return data
+}
+
+function serializeHardwareSet(hw) {
+  return {
+    id: hw.id,
+    name: hw.name,
+    capacity: hw.capacity,
+    available: hw.available,
+    maxPerUser: hw.max_per_user,
+    held: hw.held,
+  }
+}
+
+async function authRequest(path, payload) {
+  const data = await request(`/auth/${path}`, { method: 'POST', body: payload })
   const db = loadDb()
   db.users = db.users.filter((user) => user.id !== data.user.id)
   db.users.push(data.user)
@@ -186,76 +173,41 @@ export const api = {
   },
 
   async listHardwareSets() {
-    const db = loadDb()
-    return delay(db.hardwareSets.map((hw) => serializeHardwareSet(db, hw)))
+    const userId = currentUserId()
+    const query = userId ? `?user_id=${encodeURIComponent(userId)}` : ''
+    const sets = await request(`/hardware${query}`)
+    return sets.map(serializeHardwareSet)
   },
 
-  async createHardwareSet({ name, totalUnits }) {
-    const db = loadDb()
-    requireUser(db)
-    name = (name || '').trim()
-    if (!name || !Number.isInteger(totalUnits) || totalUnits < 0) {
-      throw new Error('name and a non-negative integer total are required')
-    }
-    const hw = { id: uid(), name, totalUnits }
-    db.hardwareSets.push(hw)
-    saveDb(db)
-    return delay(serializeHardwareSet(db, hw))
+  async createHardwareSet({ name, capacity, maxPerUser }) {
+    requireUser(loadDb())
+    const hw = await request('/hardware', {
+      method: 'POST',
+      body: { name, capacity, max_per_user: maxPerUser },
+    })
+    return serializeHardwareSet(hw)
   },
 
   async listAllocations(hardwareSetId) {
-    const db = loadDb()
-    const hw = db.hardwareSets.find((h) => h.id === hardwareSetId)
-    if (!hw) throw new Error('hardware set not found')
-    const allocs = db.allocations.filter((a) => a.hardwareSetId === hardwareSetId && a.quantity > 0)
-    return delay(
-      allocs.map((a) => {
-        const project = db.projects.find((p) => p.id === a.projectId)
-        return {
-          projectId: a.projectId,
-          projectName: project ? project.name : 'Unknown project',
-          quantity: a.quantity,
-        }
-      }),
-    )
+    const allocations = await request(`/hardware/${encodeURIComponent(hardwareSetId)}/allocations`)
+    return allocations.map((a) => ({ userId: a.user_id, quantity: a.quantity }))
   },
 
-  async checkout(hardwareSetId, projectId, quantity) {
-    const db = loadDb()
-    const user = requireUser(db)
-    const hw = db.hardwareSets.find((h) => h.id === hardwareSetId)
-    if (!hw) throw new Error('hardware set not found')
-    const project = db.projects.find((p) => p.id === projectId)
-    if (!project) throw new Error('project not found')
-    if (!project.memberIds.includes(user.id)) throw new Error('you must be a member of this project')
-    if (!Number.isInteger(quantity) || quantity <= 0) throw new Error('quantity must be a positive integer')
-
-    const available = hw.totalUnits - allocatedTotal(db, hardwareSetId)
-    if (quantity > available) throw new Error(`only ${available} unit(s) available`)
-
-    const existing = allocationFor(db, hardwareSetId, projectId)
-    if (existing) existing.quantity += quantity
-    else db.allocations.push({ hardwareSetId, projectId, quantity })
-    saveDb(db)
-    return delay(serializeHardwareSet(db, hw))
+  async checkout(hardwareSetId, quantity) {
+    const user = requireUser(loadDb())
+    const hw = await request(`/hardware/${encodeURIComponent(hardwareSetId)}/checkout`, {
+      method: 'POST',
+      body: { user_id: user.id, quantity },
+    })
+    return serializeHardwareSet(hw)
   },
 
-  async checkin(hardwareSetId, projectId, quantity) {
-    const db = loadDb()
-    const user = requireUser(db)
-    const hw = db.hardwareSets.find((h) => h.id === hardwareSetId)
-    if (!hw) throw new Error('hardware set not found')
-    const project = db.projects.find((p) => p.id === projectId)
-    if (!project) throw new Error('project not found')
-    if (!project.memberIds.includes(user.id)) throw new Error('you must be a member of this project')
-    if (!Number.isInteger(quantity) || quantity <= 0) throw new Error('quantity must be a positive integer')
-
-    const existing = allocationFor(db, hardwareSetId, projectId)
-    const allocatedToProject = existing ? existing.quantity : 0
-    if (quantity > allocatedToProject) throw new Error(`this project only holds ${allocatedToProject} unit(s)`)
-
-    existing.quantity -= quantity
-    saveDb(db)
-    return delay(serializeHardwareSet(db, hw))
+  async checkin(hardwareSetId, quantity) {
+    const user = requireUser(loadDb())
+    const hw = await request(`/hardware/${encodeURIComponent(hardwareSetId)}/checkin`, {
+      method: 'POST',
+      body: { user_id: user.id, quantity },
+    })
+    return serializeHardwareSet(hw)
   },
 }
