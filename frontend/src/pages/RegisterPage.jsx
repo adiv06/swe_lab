@@ -2,8 +2,9 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext.jsx'
 import { api } from '../mockApi.js'
+import ServiceStatus from '../ServiceStatus.jsx'
 
-export default function RegisterPage() {
+export default function RegisterPage({ serviceStatus }) {
   const [name, setName] = useState('')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -14,6 +15,7 @@ export default function RegisterPage() {
 
   async function handleSubmit(e) {
     e.preventDefault()
+    if (serviceStatus !== 'online') return
     setError('')
     setSubmitting(true)
     try {
@@ -70,6 +72,7 @@ export default function RegisterPage() {
         <div className="auth-card">
           <h1>Create your account</h1>
           <p className="auth-subtitle">Join or start managing a project's hardware.</p>
+          <ServiceStatus status={serviceStatus} />
 
           <form onSubmit={handleSubmit}>
             <div className="field">
@@ -105,7 +108,7 @@ export default function RegisterPage() {
 
             {error && <p className="error">{error}</p>}
 
-            <button type="submit" className="btn btn-primary auth-submit" disabled={submitting}>
+            <button type="submit" className="btn btn-primary auth-submit" disabled={submitting || serviceStatus !== 'online'}>
               {submitting ? 'Creating account...' : 'Register'}
             </button>
           </form>

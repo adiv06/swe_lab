@@ -93,10 +93,24 @@ def get_store() -> MongoStore:
 app = FastAPI(title="MongoDB key-value service")
 
 
+def require_database(store: MongoStore) -> None:
+    try:
+        store.ping()
+    except PyMongoError as exc:
+        raise HTTPException(status_code=503, detail="MongoDB unavailable") from exc
+
+
+@app.get("/api/status")
+def api_status(store: MongoStore = Depends(get_store)) -> dict[str, str]:
+    require_database(store)
+    return {"status": "ok"}
+
+
 @app.post("/api/auth/register", response_model=AuthResponse, status_code=201)
 def register(
     payload: RegisterPayload, store: MongoStore = Depends(get_store)
 ) -> AuthResponse:
+    require_database(store)
     try:
         user = store.auth.register(payload.username, payload.name, payload.password)
     except DuplicateKeyError as exc:
@@ -108,6 +122,7 @@ def register(
 
 @app.post("/api/auth/login", response_model=AuthResponse)
 def login(payload: LoginPayload, store: MongoStore = Depends(get_store)) -> AuthResponse:
+    require_database(store)
     try:
         user = store.auth.login(payload.username.strip().lower(), payload.password)
         if user is None:
@@ -119,10 +134,7 @@ def login(payload: LoginPayload, store: MongoStore = Depends(get_store)) -> Auth
 
 @app.get("/health")
 def health(store: MongoStore = Depends(get_store)) -> dict[str, str]:
-    try:
-        store.ping()
-    except PyMongoError as exc:
-        raise HTTPException(status_code=503, detail="MongoDB unavailable") from exc
+    require_database(store)
     return {"status": "ok"}
 
 

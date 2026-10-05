@@ -79,6 +79,7 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.client.put("/items/example", json={}).status_code, 422)
         self.store.available = False
         self.assertEqual(self.client.get("/health").status_code, 503)
+        self.assertEqual(self.client.get("/api/status").status_code, 503)
         self.assertEqual(self.client.get("/items/example").status_code, 503)
         self.assertEqual(
             self.client.put("/items/example", json={"value": 1}).status_code,
@@ -105,6 +106,19 @@ class ApiTests(unittest.TestCase):
         )
         self.assertEqual(logged_in.status_code, 200)
         self.assertEqual(logged_in.json()["user"]["id"], "ada_123")
+
+    def test_auth_requires_live_database(self):
+        self.assertEqual(self.client.get("/api/status").json(), {"status": "ok"})
+        self.store.available = False
+        account = {"name": "Ada", "username": "ada_123", "password": "secret123"}
+        self.assertEqual(self.client.post("/api/auth/register", json=account).status_code, 503)
+        self.assertEqual(
+            self.client.post(
+                "/api/auth/login", json={"username": "ada_123", "password": "secret123"}
+            ).status_code,
+            503,
+        )
+        self.assertEqual(self.store.auth.users.documents, {})
 
 
 class MongoStoreTests(unittest.TestCase):
