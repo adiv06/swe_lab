@@ -4,7 +4,33 @@ A small HTTP service that stores one JSON value under each string key in MongoDB
 The service owns a single database and collection, configured through environment
 variables. It creates or replaces a value when you call `PUT`.
 
-## Configure and run
+## Run locally with MongoDB
+
+Start Docker Desktop, then run this from the project directory:
+
+```powershell
+docker compose up --build
+```
+
+Open `http://localhost:5173/register` to create an account, then use the login
+page. Compose starts the frontend and MongoDB, then starts the API once MongoDB
+responds. MongoDB data persists in the `mongo_data` Docker volume across
+restarts. Stop the stack with `Ctrl+C`.
+The login and registration forms show database status and stay disabled until
+MongoDB responds. The app checks status every five seconds and blocks its main
+pages while the database is unavailable. The API also checks the connection on
+every login and registration request.
+
+By default, Compose uses its local MongoDB server. To store login accounts in
+your existing Atlas cluster, create an untracked `.env` file from
+`.env.example` and replace the URI placeholders with your database credentials.
+Then run the same `docker compose up --build` command. Compose passes that URI
+to the API, so registration writes to Atlas's `swe_lab.users` collection and
+login reads from it. The local MongoDB container may still start in this mode,
+but the API uses the configured Atlas connection. The status indicator reflects
+the database the API actually uses. Keep `.env` out of Git.
+
+## Connect to an existing MongoDB cluster
 
 Set `MONGODB_URI` to the connection string for your MongoDB cluster. Use the
 credentials supplied for that cluster; URL-encode special characters in the
@@ -55,9 +81,9 @@ Interactive API documentation is at `http://localhost:8000/docs`.
 The frontend registration and login forms call `POST /api/auth/register` and
 `POST /api/auth/login`. Users are stored in the `users` MongoDB collection with
 hashed passwords. The login response contains only the public user profile.
-Run the backend on port 8000, then run `npm run dev` in `frontend`; Vite forwards
-`/api` requests to the backend. Project data in the frontend still uses browser
-storage.
+If running outside Compose, run the backend on port 8000, then run `npm run dev`
+in `frontend`; Vite forwards `/api` requests to the backend. Project and hardware
+data in the frontend still uses browser storage.
 
 ## Hardware pool
 

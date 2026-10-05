@@ -1,10 +1,11 @@
-import { useState } from 'react'
+﻿import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import AuthLayout from '../components/AuthLayout.jsx'
 import Button from '../components/Button.jsx'
 import FormField from '../components/FormField.jsx'
 import { useAuth } from '../auth/AuthContext.jsx'
 import { api } from '../mockApi.js'
+import ServiceStatus from '../ServiceStatus.jsx'
 
 const FEATURES = [
   { icon: '＋', text: 'Create a project and invite your team' },
@@ -14,7 +15,7 @@ const FEATURES = [
 
 const ORBIT_ICONS = ['🧰', '🖥️', '🛰️']
 
-export default function RegisterPage() {
+export default function RegisterPage({ serviceStatus }) {
   const [name, setName] = useState('')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -25,6 +26,7 @@ export default function RegisterPage() {
 
   async function handleSubmit(e) {
     e.preventDefault()
+    if (serviceStatus !== 'online') return
     setError('')
     setSubmitting(true)
     try {
@@ -47,6 +49,7 @@ export default function RegisterPage() {
     >
       <h1>Create your account</h1>
       <p className="auth-subtitle">Join or start managing a project's hardware.</p>
+      <ServiceStatus status={serviceStatus} />
 
       <form onSubmit={handleSubmit}>
         <FormField
@@ -82,7 +85,7 @@ export default function RegisterPage() {
 
         {error && <p className="error">{error}</p>}
 
-        <Button type="submit" className="auth-submit" disabled={submitting}>
+        <Button type="submit" className="auth-submit" disabled={submitting || serviceStatus !== 'online'}>
           {submitting ? 'Creating account...' : 'Register'}
         </Button>
       </form>
@@ -91,5 +94,6 @@ export default function RegisterPage() {
         Already have an account? <Link to="/login">Log in</Link>
       </p>
     </AuthLayout>
+
   )
 }

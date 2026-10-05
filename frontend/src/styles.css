@@ -450,6 +450,52 @@ input:focus {
   margin: 0 0 28px;
 }
 
+.service-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+.auth-card .service-status {
+  display: flex;
+  margin: -10px 0 24px;
+}
+
+.service-status-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border-radius: 50%;
+  background: var(--text-dim);
+}
+
+.service-status-online .service-status-dot {
+  background: var(--accent-2);
+}
+
+.service-status-offline {
+  color: var(--danger);
+}
+
+.service-status-offline .service-status-dot {
+  background: var(--danger);
+}
+
+.service-gate {
+  display: flex;
+  justify-content: center;
+  padding: 72px 16px;
+}
+
+.service-gate .service-status {
+  padding: 20px 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
 .field {
   position: relative;
   margin-bottom: 18px;
