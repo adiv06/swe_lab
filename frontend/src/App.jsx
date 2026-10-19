@@ -1,22 +1,12 @@
 import { useEffect, useState } from 'react'
-import { Link, Navigate, Route, Routes } from 'react-router-dom'
+import { Route, Routes } from 'react-router-dom'
 import { useAuth } from './auth/AuthContext.jsx'
-import ServiceStatus from './ServiceStatus.jsx'
-import Button from './components/Button.jsx'
+import AppHeader from './components/AppHeader.jsx'
+import PrivateRoute from './components/PrivateRoute.jsx'
 import DashboardPage from './pages/DashboardPage.jsx'
 import LoginPage from './pages/LoginPage.jsx'
 import ProjectPage from './pages/ProjectPage.jsx'
 import RegisterPage from './pages/RegisterPage.jsx'
-
-function PrivateRoute({ children, serviceStatus }) {
-  const { user, loading } = useAuth()
-  if (loading) return <p className="loading-text">Loading...</p>
-  if (!user) return <Navigate to="/login" replace />
-  if (serviceStatus !== 'online') {
-    return <div className="service-gate"><ServiceStatus status={serviceStatus} /></div>
-  }
-  return children
-}
 
 export default function App() {
   const { user, logout } = useAuth()
@@ -43,20 +33,7 @@ export default function App() {
 
   return (
     <div className={isAuthPage ? 'app app-auth' : 'app'}>
-      {user && (
-        <header className="topbar">
-          <Link to="/" className="brand">
-            <span className="brand-mark">HA</span> Hardware Allocator
-          </Link>
-          <div className="topbar-actions">
-            <ServiceStatus status={serviceStatus} />
-            <span className="user-chip">{user.name}</span>
-            <Button variant="ghost" onClick={logout}>
-              Log out
-            </Button>
-          </div>
-        </header>
-      )}
+      {user && <AppHeader serviceStatus={serviceStatus} userName={user.name} onLogout={logout} />}
       <main className={isAuthPage ? 'content content-auth' : 'content'}>
         <Routes>
           <Route path="/login" element={<LoginPage serviceStatus={serviceStatus} />} />

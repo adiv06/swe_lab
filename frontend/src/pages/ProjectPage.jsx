@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import Button from '../components/Button.jsx'
+import HardwareSetsTable from '../components/HardwareSetsTable.jsx'
 import InlineCreateForm from '../components/InlineCreateForm.jsx'
+import SectionBlock from '../components/SectionBlock.jsx'
 import { api } from '../mockApi.js'
 
 export default function ProjectPage() {
@@ -47,6 +48,10 @@ export default function ProjectPage() {
     }
   }
 
+  function handleQuantityChange(hwId, value) {
+    setQuantities((q) => ({ ...q, [hwId]: value }))
+  }
+
   async function handleCreateSet({ name, capacity, maxPerUser }) {
     const total = parseInt(capacity, 10)
     const cap = parseInt(maxPerUser, 10)
@@ -74,50 +79,17 @@ export default function ProjectPage() {
       </p>
       {error && <p className="error">{error}</p>}
 
-      <section>
-        <h2>Hardware sets</h2>
-        <table className="hw-table">
-          <thead>
-            <tr>
-              <th>Set</th>
-              <th>Capacity</th>
-              <th>Available</th>
-              <th>Per-user cap</th>
-              <th>Held by you</th>
-              <th>Quantity</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {hardwareSets.map((hw) => (
-              <tr key={hw.id}>
-                <td>{hw.name}</td>
-                <td>{hw.capacity}</td>
-                <td>{hw.available}</td>
-                <td>{hw.maxPerUser}</td>
-                <td>{hw.held}</td>
-                <td>
-                  <input
-                    type="number"
-                    min="1"
-                    value={quantities[hw.id] || ''}
-                    onChange={(e) => setQuantities((q) => ({ ...q, [hw.id]: e.target.value }))}
-                  />
-                </td>
-                <td>
-                  <Button onClick={() => handleCheckout(hw.id)}>Check out</Button>
-                  <Button variant="ghost" onClick={() => handleCheckin(hw.id)}>
-                    Check in
-                  </Button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
+      <SectionBlock title="Hardware sets">
+        <HardwareSetsTable
+          hardwareSets={hardwareSets}
+          quantities={quantities}
+          onQuantityChange={handleQuantityChange}
+          onCheckout={handleCheckout}
+          onCheckin={handleCheckin}
+        />
+      </SectionBlock>
 
-      <section>
-        <h2>Register a new hardware set</h2>
+      <SectionBlock title="Register a new hardware set">
         <InlineCreateForm
           fields={[
             { name: 'name', placeholder: 'Name' },
@@ -127,7 +99,7 @@ export default function ProjectPage() {
           submitLabel="Add hardware set"
           onSubmit={handleCreateSet}
         />
-      </section>
+      </SectionBlock>
     </div>
   )
 }

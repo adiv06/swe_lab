@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import Button from '../components/Button.jsx'
 import InlineCreateForm from '../components/InlineCreateForm.jsx'
 import ProjectList from '../components/ProjectList.jsx'
+import SectionBlock from '../components/SectionBlock.jsx'
 import { api } from '../mockApi.js'
 
 export default function DashboardPage() {
@@ -49,8 +50,7 @@ export default function DashboardPage() {
     <div>
       {error && <p className="error">{error}</p>}
 
-      <section>
-        <h2>My projects</h2>
+      <SectionBlock title="My projects">
         <ProjectList
           projects={myProjects}
           emptyText="You haven't joined any projects yet."
@@ -63,10 +63,9 @@ export default function DashboardPage() {
             </>
           )}
         />
-      </section>
+      </SectionBlock>
 
-      <section>
-        <h2>Create a project</h2>
+      <SectionBlock title="Create a project">
         <InlineCreateForm
           fields={[
             { name: 'name', placeholder: 'Project name' },
@@ -87,10 +86,9 @@ export default function DashboardPage() {
         {unitsLoaded && availableUnits.length === 0 && (
           <p className="form-note">No HW available right now. You can still create a project.</p>
         )}
-      </section>
+      </SectionBlock>
 
-      <section>
-        <h2>Other projects</h2>
+      <SectionBlock title="Other projects">
         <ProjectList
           projects={otherProjects}
           emptyText="No other projects to join."
@@ -103,7 +101,7 @@ export default function DashboardPage() {
             </>
           )}
         />
-      </section>
+      </SectionBlock>
     </div>
   )
 }
