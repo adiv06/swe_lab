@@ -194,16 +194,29 @@ h2 {
   color: var(--accent-2);
 }
 
+.project-hw-summary,
+.form-note,
+.project-description {
+  color: var(--text-dim);
+  font-size: 14px;
+}
+
+.form-note {
+  margin: 10px 0 0;
+}
+
 .inline-form {
   display: flex;
   gap: 10px;
 }
 
-.inline-form input {
+.inline-form input,
+.inline-form select {
   flex: 1;
 }
 
-input {
+input,
+select {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -212,7 +225,8 @@ input {
   font-size: 14px;
 }
 
-input:focus {
+input:focus,
+select:focus {
   outline: none;
   border-color: var(--accent);
 }

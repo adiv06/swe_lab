@@ -8,19 +8,23 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    api.me().then((u) => {
-      setUser(u)
-      setLoading(false)
-    })
+    api.me()
+      .then(setUser)
+      .catch(() => setUser(null))
+      .finally(() => setLoading(false))
   }, [])
 
   function setSession(userData) {
     setUser(userData)
   }
 
-  function logout() {
-    api.logout()
-    setUser(null)
+  async function logout() {
+    try {
+      await api.logout()
+      setUser(null)
+    } catch {
+      // Keep the current session visible if server-side logout fails.
+    }
   }
 
   return <AuthContext.Provider value={{ user, loading, setSession, logout }}>{children}</AuthContext.Provider>

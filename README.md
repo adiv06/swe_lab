@@ -4,31 +4,27 @@ A small HTTP service that stores one JSON value under each string key in MongoDB
 The service owns a single database and collection, configured through environment
 variables. It creates or replaces a value when you call `PUT`.
 
-## Run locally with MongoDB
+## Run the app with Atlas
 
-Start Docker Desktop, then run this from the project directory:
+Create an untracked `.env` file from `.env.example` and set `MONGODB_URI` to
+your Atlas connection string. Start Docker Desktop, then run:
 
 ```powershell
 docker compose up --build
 ```
 
 Open `http://localhost:5173/register` to create an account, then use the login
-page. Compose starts the frontend and MongoDB, then starts the API once MongoDB
-responds. MongoDB data persists in the `mongo_data` Docker volume across
-restarts. Stop the stack with `Ctrl+C`.
+page. Compose starts the frontend and API. It requires `MONGODB_URI` and does
+not start a local MongoDB server. Stop the stack with `Ctrl+C`.
 The login and registration forms show database status and stay disabled until
 MongoDB responds. The app checks status every five seconds and blocks its main
 pages while the database is unavailable. The API also checks the connection on
 every login and registration request.
 
-By default, Compose uses its local MongoDB server. To store login accounts in
-your existing Atlas cluster, create an untracked `.env` file from
-`.env.example` and replace the URI placeholders with your database credentials.
-Then run the same `docker compose up --build` command. Compose passes that URI
-to the API, so registration writes to Atlas's `swe_lab.users` collection and
-login reads from it. The local MongoDB container may still start in this mode,
-but the API uses the configured Atlas connection. The status indicator reflects
-the database the API actually uses. Keep `.env` out of Git.
+Accounts, sessions, projects, hardware sets, allocations, and unit requests go
+through the API to Atlas. Existing projects previously stored in a browser are
+not automatically imported. The status indicator reflects the Atlas connection.
+Keep `.env` out of Git.
 
 ## Connect to an existing MongoDB cluster
 
@@ -80,10 +76,21 @@ Interactive API documentation is at `http://localhost:8000/docs`.
 
 The frontend registration and login forms call `POST /api/auth/register` and
 `POST /api/auth/login`. Users are stored in the `users` MongoDB collection with
-hashed passwords. The login response contains only the public user profile.
+hashed passwords. Login sessions are stored in `sessions` and held in an
+HTTP-only browser cookie. The login response contains only the public user profile.
 If running outside Compose, run the backend on port 8000, then run `npm run dev`
-in `frontend`; Vite forwards `/api` requests to the backend. Project and hardware
-data in the frontend still uses browser storage.
+in `frontend`; Vite forwards `/api` requests to the backend.
+
+## Project hardware unit requests
+
+In the `swe_lab` database, create a collection named exactly `HW Allocation`.
+Paste the two documents from [`data/hw_units_seed.json`](data/hw_units_seed.json)
+into that collection, one document at a time. Each starts with
+`"status": "available"`. The Create a project form lists available units.
+When a user chooses one, the API atomically marks it allocated and writes the
+user ID, project ID, and a new allocation ID to the unit document. The project
+also stores that allocation ID and displays it on the project page. A second
+request for the same unit returns `409`.
 
 ## Hardware pool
 
@@ -94,11 +101,11 @@ user ID to a hardware set and the number of units that user holds.
 
 | Endpoint | Purpose |
 | --- | --- |
-| `GET /api/hardware?user_id=ada` | List sets; `held` is what that user holds |
+| `GET /api/hardware` | List sets; `held` is what the logged-in user holds |
 | `POST /api/hardware` | Create a set: `{"name", "capacity", "max_per_user"}` |
 | `GET /api/hardware/{id}/allocations` | Which users hold units of a set |
-| `POST /api/hardware/{id}/checkout` | Claim units: `{"user_id", "quantity"}` |
-| `POST /api/hardware/{id}/checkin` | Return units to the pool: `{"user_id", "quantity"}` |
+| `POST /api/hardware/{id}/checkout` | Claim units: `{"quantity"}` |
+| `POST /api/hardware/{id}/checkin` | Return units to the pool: `{"quantity"}` |
 
 A checkout that would exceed the units available or the per-user cap, or a
 check-in of more units than the user holds, returns `409`. An unknown user or
