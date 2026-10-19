@@ -68,6 +68,15 @@ export default function ProjectPage() {
     <div>
       <h1>{project.name}</h1>
       <p style={{ color: 'var(--text-dim)', marginTop: -8 }}>{project.memberIds.length} member(s)</p>
+      <p className="project-description">
+        {project.hardwareUnitId ? (
+          <>
+            Assigned hardware: {project.hardwareUnitName}<br />
+            HW ID: <code>{project.hardwareUnitId}</code><br />
+            Allocation ID: <code>{project.allocationId}</code>
+          </>
+        ) : 'No HW unit assigned to this project.'}
+      </p>
       {error && <p className="error">{error}</p>}
 
       <SectionBlock title="Hardware sets">

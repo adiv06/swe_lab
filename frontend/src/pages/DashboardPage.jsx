@@ -9,29 +9,38 @@ import { api } from '../mockApi.js'
 export default function DashboardPage() {
   const [myProjects, setMyProjects] = useState([])
   const [otherProjects, setOtherProjects] = useState([])
+  const [availableUnits, setAvailableUnits] = useState([])
+  const [unitsLoaded, setUnitsLoaded] = useState(false)
   const [error, setError] = useState('')
 
   async function refresh() {
-    const [mine, all] = await Promise.all([api.myProjects(), api.listProjects()])
-    setMyProjects(mine)
+    const [all, units] = await Promise.all([api.listProjects(), api.listAvailableUnits()])
+    setMyProjects(all.filter((p) => p.isMember))
     setOtherProjects(all.filter((p) => !p.isMember))
+    setAvailableUnits(units)
+    setUnitsLoaded(true)
   }
 
   useEffect(() => {
-    refresh()
+    refresh().catch((err) => setError(err.message))
   }, [])
 
-  async function handleCreate({ name }) {
+  async function handleCreate({ name, hardwareUnitId }) {
     if (!name.trim()) throw new Error('name is required')
-    await api.createProject(name.trim())
-    refresh()
+    try {
+      await api.createProject(name.trim(), hardwareUnitId)
+    } catch (err) {
+      await refresh()
+      throw err
+    }
+    await refresh()
   }
 
   async function handleJoin(id) {
     setError('')
     try {
       await api.joinProject(id)
-      refresh()
+      await refresh()
     } catch (err) {
       setError(err.message)
     }
@@ -45,16 +54,38 @@ export default function DashboardPage() {
         <ProjectList
           projects={myProjects}
           emptyText="You haven't joined any projects yet."
-          renderItem={(p) => <Link to={`/projects/${p.id}`}>{p.name}</Link>}
+          renderItem={(p) => (
+            <>
+              <Link to={`/projects/${p.id}`}>{p.name}</Link>
+              <span className="project-hw-summary">
+                {p.hardwareUnitId ? `HW ID: ${p.hardwareUnitId}` : 'No HW assigned'}
+              </span>
+            </>
+          )}
         />
       </SectionBlock>
 
       <SectionBlock title="Create a project">
         <InlineCreateForm
-          fields={[{ name: 'name', placeholder: 'Project name' }]}
+          fields={[
+            { name: 'name', placeholder: 'Project name' },
+            {
+              name: 'hardwareUnitId',
+              placeholder: !unitsLoaded
+                ? 'Checking hardware...'
+                : availableUnits.length === 0
+                  ? 'No HW available'
+                  : 'Request a hardware unit (optional)',
+              disabled: availableUnits.length === 0,
+              options: availableUnits.map((unit) => ({ value: unit.id, label: unit.name })),
+            },
+          ]}
           submitLabel="Create"
           onSubmit={handleCreate}
         />
+        {unitsLoaded && availableUnits.length === 0 && (
+          <p className="form-note">No HW available right now. You can still create a project.</p>
+        )}
       </SectionBlock>
 
       <SectionBlock title="Other projects">

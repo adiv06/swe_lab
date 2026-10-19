@@ -6,6 +6,8 @@ from pymongo.errors import DuplicateKeyError, ServerSelectionTimeoutError
 
 from app.auth import AuthStore, verify_password
 from app.hardware import HardwareStore
+from app.projects import ProjectStore
+from app.units import UnitStore
 from app.main import MongoStore, app, get_store
 
 
@@ -16,6 +18,8 @@ class FakeStore:
         self.database = FakeDatabase()
         self.auth = AuthStore(self.database)
         self.hardware = HardwareStore(self.database)
+        self.projects = ProjectStore(self.database)
+        self.units = UnitStore(self.database)
 
     def ping(self):
         if not self.available:
@@ -58,6 +62,9 @@ class FakeCollection:
     def __init__(self):
         self.documents = {}
 
+    def create_index(self, *_args, **_kwargs):
+        return None
+
     def insert_one(self, document):
         if document["_id"] in self.documents:
             raise DuplicateKeyError("duplicate key")
@@ -84,6 +91,12 @@ class FakeCollection:
     def _apply(self, document, update):
         for field, amount in update.get("$inc", {}).items():
             document[field] = document.get(field, 0) + amount
+        document.update(update.get("$set", {}))
+        for field in update.get("$unset", {}):
+            document.pop(field, None)
+        for field, value in update.get("$addToSet", {}).items():
+            if value not in document.setdefault(field, []):
+                document[field].append(value)
 
     def update_one(self, query, update, upsert=False):
         current = self.find_one(query)
@@ -165,6 +178,9 @@ class ApiTests(unittest.TestCase):
         )
         self.assertEqual(logged_in.status_code, 200)
         self.assertEqual(logged_in.json()["user"]["id"], "ada_123")
+        self.assertEqual(self.client.get("/api/auth/me").json()["user"]["id"], "ada_123")
+        self.assertEqual(self.client.post("/api/auth/logout").status_code, 204)
+        self.assertEqual(self.client.get("/api/auth/me").status_code, 401)
 
     def test_auth_requires_live_database(self):
         self.assertEqual(self.client.get("/api/status").json(), {"status": "ok"})
@@ -201,15 +217,25 @@ class HardwareApiTests(unittest.TestCase):
         app.dependency_overrides.clear()
 
     def checkout(self, user, quantity):
+        login = self.client.post(
+            "/api/auth/login", json={"username": user, "password": "secret123"}
+        )
+        if login.status_code != 200:
+            return login
         return self.client.post(
             f"/api/hardware/{self.hw_id}/checkout",
-            json={"user_id": user, "quantity": quantity},
+            json={"quantity": quantity},
         )
 
     def checkin(self, user, quantity):
+        login = self.client.post(
+            "/api/auth/login", json={"username": user, "password": "secret123"}
+        )
+        if login.status_code != 200:
+            return login
         return self.client.post(
             f"/api/hardware/{self.hw_id}/checkin",
-            json={"user_id": user, "quantity": quantity},
+            json={"quantity": quantity},
         )
 
     def test_checkout_links_user_and_reduces_pool(self):
@@ -219,7 +245,7 @@ class HardwareApiTests(unittest.TestCase):
         self.assertEqual(response.json()["held"], 2)
         allocations = self.client.get(f"/api/hardware/{self.hw_id}/allocations").json()
         self.assertEqual(allocations, [{"user_id": "ada", "quantity": 2}])
-        listed = self.client.get("/api/hardware", params={"user_id": "ada"}).json()
+        listed = self.client.get("/api/hardware").json()
         self.assertEqual(listed[0]["held"], 2)
 
     def test_per_user_cap_and_pool_capacity(self):
@@ -232,7 +258,7 @@ class HardwareApiTests(unittest.TestCase):
         self.assertEqual(short.status_code, 409)
         self.assertIn("Only 2", short.json()["detail"])
         # A rejected checkout must not leave a partial reservation behind.
-        listed = self.client.get("/api/hardware", params={"user_id": "grace"}).json()
+        listed = self.client.get("/api/hardware").json()
         self.assertEqual(listed[0]["held"], 0)
         self.assertEqual(listed[0]["available"], 2)
         self.assertNotIn(
@@ -251,12 +277,85 @@ class HardwareApiTests(unittest.TestCase):
         self.assertEqual(self.client.get(f"/api/hardware/{self.hw_id}/allocations").json(), [])
 
     def test_unknown_user_and_hardware(self):
-        self.assertEqual(self.checkout("nobody", 1).status_code, 404)
+        self.assertEqual(self.checkout("nobody", 1).status_code, 401)
         response = self.client.post(
-            "/api/hardware/missing/checkout", json={"user_id": "ada", "quantity": 1}
+            "/api/hardware/missing/checkout", json={"quantity": 1}
         )
         self.assertEqual(response.status_code, 404)
         self.assertEqual(self.checkout("ada", 0).status_code, 422)
+        self.assertEqual(
+            self.client.post(
+                f"/api/hardware/{self.hw_id}/checkout",
+                json={"user_id": "grace", "quantity": 1},
+            ).status_code,
+            422,
+        )
+
+
+class ProjectApiTests(unittest.TestCase):
+    def setUp(self):
+        self.store = FakeStore()
+        app.dependency_overrides[get_store] = lambda: self.store
+        self.ada = TestClient(app)
+        self.grace = TestClient(app)
+        self.guest = TestClient(app)
+        for client, username in ((self.ada, "ada"), (self.grace, "grace")):
+            self.assertEqual(
+                client.post(
+                    "/api/auth/register",
+                    json={"name": username, "username": username, "password": "secret123"},
+                ).status_code,
+                201,
+            )
+        for unit_id, name in (("hw-unit-001", "Arduino Kit 1"), ("hw-unit-002", "Pi Kit 1")):
+            self.store.database["HW Allocation"].insert_one(
+                {"_id": unit_id, "name": name, "status": "available"}
+            )
+
+    def tearDown(self):
+        self.ada.close()
+        self.grace.close()
+        self.guest.close()
+        app.dependency_overrides.clear()
+
+    def test_unit_request_links_user_project_and_allocation(self):
+        self.assertEqual(self.guest.get("/api/projects").status_code, 401)
+        self.assertEqual(len(self.ada.get("/api/units/available").json()), 2)
+        response = self.ada.post(
+            "/api/projects",
+            json={"name": "Flight controls", "hardware_unit_id": "hw-unit-001"},
+        )
+        self.assertEqual(response.status_code, 201)
+        project = response.json()
+        self.assertEqual(project["memberIds"], ["ada"])
+        self.assertEqual(project["hardwareUnitId"], "hw-unit-001")
+        self.assertTrue(project["allocationId"])
+        unit = self.store.database["HW Allocation"].documents["hw-unit-001"]
+        self.assertEqual(unit["allocated_user_id"], "ada")
+        self.assertEqual(unit["allocated_project_id"], project["id"])
+        self.assertEqual(unit["allocation_id"], project["allocationId"])
+        self.assertEqual(len(self.grace.get("/api/units/available").json()), 1)
+        self.assertEqual(
+            self.grace.post(
+                "/api/projects",
+                json={"name": "Competing", "hardware_unit_id": "hw-unit-001"},
+            ).status_code,
+            409,
+        )
+        self.assertEqual(len(self.store.database["projects"].documents), 1)
+        self.assertFalse(self.grace.get(f"/api/projects/{project['id']}").json()["isMember"])
+        joined = self.grace.post(f"/api/projects/{project['id']}/join")
+        self.assertEqual(joined.status_code, 200)
+        self.assertEqual(joined.json()["memberIds"], ["ada", "grace"])
+        self.assertEqual(self.ada.post("/api/auth/logout").status_code, 204)
+        self.assertEqual(self.ada.get("/api/projects").status_code, 401)
+
+    def test_missing_unit_does_not_create_project(self):
+        response = self.ada.post(
+            "/api/projects", json={"name": "Missing", "hardware_unit_id": "unknown"}
+        )
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(self.store.database["projects"].documents, {})
 
 
 class MongoStoreTests(unittest.TestCase):

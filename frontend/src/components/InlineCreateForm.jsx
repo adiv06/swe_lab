@@ -25,14 +25,29 @@ export default function InlineCreateForm({ fields, submitLabel, onSubmit }) {
     <div>
       <form onSubmit={handleSubmit} className="inline-form">
         {fields.map((field) => (
-          <input
-            key={field.name}
-            type={field.type || 'text'}
-            placeholder={field.placeholder}
-            min={field.min}
-            value={values[field.name]}
-            onChange={(e) => setValues((v) => ({ ...v, [field.name]: e.target.value }))}
-          />
+          field.options ? (
+            <select
+              key={field.name}
+              aria-label={field.placeholder}
+              disabled={field.disabled}
+              value={values[field.name]}
+              onChange={(e) => setValues((v) => ({ ...v, [field.name]: e.target.value }))}
+            >
+              <option value="">{field.placeholder}</option>
+              {field.options.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          ) : (
+            <input
+              key={field.name}
+              type={field.type || 'text'}
+              placeholder={field.placeholder}
+              min={field.min}
+              value={values[field.name]}
+              onChange={(e) => setValues((v) => ({ ...v, [field.name]: e.target.value }))}
+            />
+          )
         ))}
         <Button type="submit">{submitLabel}</Button>
       </form>
