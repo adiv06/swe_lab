@@ -5,6 +5,7 @@ import ServiceStatus from './ServiceStatus.jsx'
 import Button from './components/Button.jsx'
 import DashboardPage from './pages/DashboardPage.jsx'
 import LoginPage from './pages/LoginPage.jsx'
+import InventoryPage from './pages/InventoryPage.jsx'
 import ProjectPage from './pages/ProjectPage.jsx'
 import RegisterPage from './pages/RegisterPage.jsx'
 
@@ -48,6 +49,10 @@ export default function App() {
           <Link to="/" className="brand">
             <span className="brand-mark">HA</span> Hardware Allocator
           </Link>
+          <nav className="topbar-nav" aria-label="Main navigation">
+            <Link to="/">Projects</Link>
+            <Link to="/inventory">Inventory</Link>
+          </nav>
           <div className="topbar-actions">
             <ServiceStatus status={serviceStatus} />
             <span className="user-chip">{user.name}</span>
@@ -66,6 +71,14 @@ export default function App() {
             element={
               <PrivateRoute serviceStatus={serviceStatus}>
                 <DashboardPage />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/inventory"
+            element={
+              <PrivateRoute serviceStatus={serviceStatus}>
+                <InventoryPage />
               </PrivateRoute>
             }
           />

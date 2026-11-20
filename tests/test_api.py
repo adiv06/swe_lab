@@ -5,7 +5,6 @@ from fastapi.testclient import TestClient
 from pymongo.errors import DuplicateKeyError, ServerSelectionTimeoutError
 
 from app.auth import AuthStore, verify_password
-from app.hardware import HardwareStore
 from app.projects import ProjectStore
 from app.units import UnitStore
 from app.main import MongoStore, app, get_store
@@ -17,7 +16,6 @@ class FakeStore:
         self.available = True
         self.database = FakeDatabase()
         self.auth = AuthStore(self.database)
-        self.hardware = HardwareStore(self.database)
         self.projects = ProjectStore(self.database)
         self.units = UnitStore(self.database)
 
@@ -117,6 +115,12 @@ class FakeCollection:
         self._apply(self.documents[current["_id"]], update)
         return dict(self.documents[current["_id"]])
 
+    def find_one_and_delete(self, query):
+        current = self.find_one(query)
+        if current is not None:
+            del self.documents[current["_id"]]
+        return current
+
 
 class FakeDatabase:
     def __init__(self):
@@ -195,101 +199,13 @@ class ApiTests(unittest.TestCase):
         )
         self.assertEqual(self.store.auth.users.documents, {})
 
-
-class HardwareApiTests(unittest.TestCase):
-    def setUp(self):
-        self.store = FakeStore()
-        app.dependency_overrides[get_store] = lambda: self.store
-        self.client = TestClient(app)
-        for username in ("ada", "grace"):
-            self.client.post(
-                "/api/auth/register",
-                json={"name": username, "username": username, "password": "secret123"},
-            )
-        created = self.client.post(
-            "/api/hardware", json={"name": "Arduino Kits", "capacity": 5, "max_per_user": 3}
-        )
-        self.assertEqual(created.status_code, 201)
-        self.hw_id = created.json()["id"]
-
-    def tearDown(self):
-        self.client.close()
-        app.dependency_overrides.clear()
-
-    def checkout(self, user, quantity):
-        login = self.client.post(
-            "/api/auth/login", json={"username": user, "password": "secret123"}
-        )
-        if login.status_code != 200:
-            return login
-        return self.client.post(
-            f"/api/hardware/{self.hw_id}/checkout",
-            json={"quantity": quantity},
-        )
-
-    def checkin(self, user, quantity):
-        login = self.client.post(
-            "/api/auth/login", json={"username": user, "password": "secret123"}
-        )
-        if login.status_code != 200:
-            return login
-        return self.client.post(
-            f"/api/hardware/{self.hw_id}/checkin",
-            json={"quantity": quantity},
-        )
-
-    def test_checkout_links_user_and_reduces_pool(self):
-        response = self.checkout("ada", 2)
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["available"], 3)
-        self.assertEqual(response.json()["held"], 2)
-        allocations = self.client.get(f"/api/hardware/{self.hw_id}/allocations").json()
-        self.assertEqual(allocations, [{"user_id": "ada", "quantity": 2}])
-        listed = self.client.get("/api/hardware").json()
-        self.assertEqual(listed[0]["held"], 2)
-
-    def test_per_user_cap_and_pool_capacity(self):
-        self.assertEqual(self.checkout("ada", 4).status_code, 409)
-        self.assertEqual(self.checkout("ada", 3).status_code, 200)
-        capped = self.checkout("ada", 1)
-        self.assertEqual(capped.status_code, 409)
-        self.assertIn("at most 3", capped.json()["detail"])
-        short = self.checkout("grace", 3)
-        self.assertEqual(short.status_code, 409)
-        self.assertIn("Only 2", short.json()["detail"])
-        # A rejected checkout must not leave a partial reservation behind.
-        listed = self.client.get("/api/hardware").json()
-        self.assertEqual(listed[0]["held"], 0)
-        self.assertEqual(listed[0]["available"], 2)
-        self.assertNotIn(
-            f"{self.hw_id}:grace", self.store.database["allocations"].documents
-        )
-
-    def test_checkin_returns_units_to_pool(self):
-        self.checkout("ada", 3)
-        self.assertEqual(self.checkin("ada", 4).status_code, 409)
-        self.assertEqual(self.checkin("grace", 1).status_code, 409)
-        partial = self.checkin("ada", 1)
-        self.assertEqual(partial.json()["available"], 3)
-        self.assertEqual(partial.json()["held"], 2)
-        done = self.checkin("ada", 2)
-        self.assertEqual(done.json()["available"], 5)
-        self.assertEqual(self.client.get(f"/api/hardware/{self.hw_id}/allocations").json(), [])
-
-    def test_unknown_user_and_hardware(self):
-        self.assertEqual(self.checkout("nobody", 1).status_code, 401)
-        response = self.client.post(
-            "/api/hardware/missing/checkout", json={"quantity": 1}
-        )
-        self.assertEqual(response.status_code, 404)
-        self.assertEqual(self.checkout("ada", 0).status_code, 422)
-        self.assertEqual(
-            self.client.post(
-                f"/api/hardware/{self.hw_id}/checkout",
-                json={"user_id": "grace", "quantity": 1},
-            ).status_code,
-            422,
-        )
+    def test_empty_database_starts_with_only_two_individual_units(self):
+        self.client.post("/api/auth/register", json={"name": "Ada", "username": "ada", "password": "secret123"})
+        self.assertEqual(self.client.get("/api/hardware").status_code, 404)
+        self.assertEqual(self.store.database["hardware_sets"].documents, {})
+        units = self.client.get("/api/units").json()
+        self.assertEqual([unit["id"] for unit in units], ["hw-unit-001", "hw-unit-002"])
+        self.assertEqual([unit["status"] for unit in units], ["available", "available"])
 
 
 class ProjectApiTests(unittest.TestCase):
@@ -356,6 +272,123 @@ class ProjectApiTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 404)
         self.assertEqual(self.store.database["projects"].documents, {})
+
+    def test_inventory_shows_only_the_two_individual_units(self):
+        self.assertEqual(self.guest.get("/api/inventory").status_code, 401)
+        project = self.ada.post(
+            "/api/projects",
+            json={"name": "Flight controls", "hardware_unit_id": "hw-unit-001"},
+        ).json()
+        response = self.grace.get("/api/inventory")
+        self.assertEqual(response.status_code, 200)
+        inventory = response.json()
+        units = {unit["id"]: unit for unit in inventory["units"]}
+        self.assertEqual(units["hw-unit-001"]["status"], "allocated")
+        self.assertEqual(units["hw-unit-001"]["holder"], "ada")
+        self.assertEqual(units["hw-unit-001"]["projectId"], project["id"])
+        self.assertEqual(units["hw-unit-001"]["projectName"], "Flight controls")
+        self.assertEqual(units["hw-unit-002"]["status"], "available")
+        self.assertIsNone(units["hw-unit-002"]["holder"])
+        self.assertEqual(len(inventory["units"]), 2)
+        self.assertNotIn("sets", inventory)
+
+    def test_member_can_release_unit_and_another_project_can_request_it(self):
+        created = self.ada.post(
+            "/api/projects",
+            json={"name": "First", "hardware_unit_id": "hw-unit-001"},
+        ).json()
+        path = f"/api/projects/{created['id']}/hardware/release"
+        self.assertEqual(self.guest.post(path).status_code, 401)
+        self.assertEqual(self.grace.post(path).status_code, 403)
+        self.assertEqual(self.store.database["HW Allocation"].documents["hw-unit-001"]["status"], "allocated")
+
+        self.assertEqual(self.grace.post(f"/api/projects/{created['id']}/join").status_code, 200)
+
+        released = self.grace.post(path)
+        self.assertEqual(released.status_code, 200)
+        self.assertIsNone(released.json()["hardwareUnitId"])
+        self.assertIsNone(released.json()["allocationId"])
+        self.assertIsNone(self.ada.get(f"/api/projects/{created['id']}").json()["hardwareUnitId"])
+        unit = self.store.database["HW Allocation"].documents["hw-unit-001"]
+        self.assertEqual(unit["status"], "available")
+        self.assertNotIn("allocated_user_id", unit)
+        self.assertNotIn("allocated_project_id", unit)
+        self.assertNotIn("allocation_id", unit)
+        self.assertEqual(self.ada.post(path).status_code, 409)
+
+        new_project = self.grace.post(
+            "/api/projects", json={"name": "Second", "hardware_unit_id": "hw-unit-001"}
+        )
+        self.assertEqual(new_project.status_code, 201)
+        self.assertEqual(new_project.json()["hardwareUnitId"], "hw-unit-001")
+
+    def test_release_keeps_project_assignment_if_unit_record_changed(self):
+        created = self.ada.post(
+            "/api/projects", json={"name": "First", "hardware_unit_id": "hw-unit-001"}
+        ).json()
+        self.store.database["HW Allocation"].documents["hw-unit-001"]["allocation_id"] = "different"
+        response = self.ada.post(f"/api/projects/{created['id']}/hardware/release")
+        self.assertEqual(response.status_code, 409)
+        current = self.ada.get(f"/api/projects/{created['id']}").json()
+        self.assertEqual(current["hardwareUnitId"], "hw-unit-001")
+        self.assertEqual(current["allocationId"], created["allocationId"])
+
+    def test_two_individual_units_are_shared_by_project_members(self):
+        self.assertEqual(self.ada.post("/api/projects", json={"id": "unit_team", "name": "Unit team"}).status_code, 201)
+        unit1 = "/api/projects/unit_team/units/hw-unit-001"
+        unit2 = "/api/projects/unit_team/units/hw-unit-002"
+        self.assertEqual(self.grace.post(f"{unit1}/checkout").status_code, 403)
+        self.assertEqual(self.ada.post(f"{unit1}/checkout").status_code, 200)
+        self.assertEqual(self.ada.post(f"{unit2}/checkout").status_code, 200)
+        self.assertEqual(self.ada.post(f"{unit1}/checkout").status_code, 409)
+        listed = self.ada.get("/api/units").json()
+        self.assertEqual([u["status"] for u in listed], ["allocated", "allocated"])
+        self.assertEqual([u["projectId"] for u in listed], ["unit_team", "unit_team"])
+        self.assertEqual(self.ada.delete("/api/projects/unit_team").status_code, 409)
+
+        self.assertEqual(self.grace.post("/api/projects/unit_team/join").status_code, 200)
+        self.assertEqual(self.grace.post(f"{unit2}/checkin").status_code, 200)
+        self.assertEqual([u["status"] for u in self.grace.get("/api/units").json()], ["allocated", "available"])
+        self.assertEqual(self.grace.post(f"{unit2}/checkout").status_code, 200)
+        self.assertEqual(self.ada.post("/api/auth/logout").status_code, 204)
+        self.assertEqual(self.ada.post("/api/auth/login", json={"username": "ada", "password": "secret123"}).status_code, 200)
+        self.assertEqual([u["status"] for u in self.ada.get("/api/units").json()], ["allocated", "allocated"])
+
+        self.assertEqual(self.grace.post(f"{unit1}/checkin").status_code, 200)
+        self.assertEqual(self.grace.post(f"{unit2}/checkin").status_code, 200)
+        self.assertEqual(self.ada.delete("/api/projects/unit_team").status_code, 204)
+        self.assertEqual([u["status"] for u in self.ada.get("/api/units").json()], ["available", "available"])
+
+    def test_old_project_assignment_can_be_checked_in_from_unit_page(self):
+        created = self.ada.post("/api/projects", json={"id": "legacy_unit", "name": "Legacy", "hardware_unit_id": "hw-unit-001"})
+        self.assertEqual(created.status_code, 201)
+        self.assertEqual(self.grace.post("/api/projects/legacy_unit/join").status_code, 200)
+        self.assertEqual(self.grace.post("/api/projects/legacy_unit/units/hw-unit-001/checkin").status_code, 200)
+        self.assertIsNone(self.ada.get("/api/projects/legacy_unit").json()["hardwareUnitId"])
+        self.assertEqual(self.ada.delete("/api/projects/legacy_unit").status_code, 204)
+
+    def test_creator_delete_removes_only_that_project_after_hardware_is_returned(self):
+        first = self.ada.post("/api/projects", json={
+            "id": "delete_me", "name": "Delete me", "hardware_unit_id": "hw-unit-001"
+        })
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(self.grace.post("/api/projects/delete_me/join").status_code, 200)
+        kept = self.grace.post("/api/projects", json={"id": "keep_me", "name": "Keep me"})
+        self.assertEqual(kept.status_code, 201)
+        self.assertEqual(self.ada.post("/api/projects/keep_me/join").status_code, 200)
+        path = "/api/projects/delete_me/units/hw-unit-001"
+
+        self.assertEqual(self.guest.delete("/api/projects/delete_me").status_code, 401)
+        self.assertEqual(self.grace.delete("/api/projects/delete_me").status_code, 403)
+        self.assertEqual(self.ada.delete("/api/projects/delete_me").status_code, 409)
+        self.assertEqual(self.grace.post(f"{path}/checkin").status_code, 200)
+        self.assertEqual(self.ada.delete("/api/projects/delete_me").status_code, 204)
+        self.assertEqual(self.ada.delete("/api/projects/delete_me").status_code, 404)
+
+        self.assertEqual(self.grace.get("/api/projects/delete_me").status_code, 404)
+        self.assertEqual([p["id"] for p in self.grace.get("/api/projects").json()], ["keep_me"])
+        self.assertTrue(self.ada.get("/api/projects/keep_me").json()["isMember"])
+        self.assertEqual(self.store.database["HW Allocation"].documents["hw-unit-001"]["status"], "available")
 
 
 class MongoStoreTests(unittest.TestCase):

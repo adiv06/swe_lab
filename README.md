@@ -21,7 +21,7 @@ MongoDB responds. The app checks status every five seconds and blocks its main
 pages while the database is unavailable. The API also checks the connection on
 every login and registration request.
 
-Accounts, sessions, projects, hardware sets, allocations, and unit requests go
+Accounts, sessions, projects, and the two hardware units go
 through the API to Atlas. Existing projects previously stored in a browser are
 not automatically imported. The status indicator reflects the Atlas connection.
 Keep `.env` out of Git.
@@ -81,39 +81,26 @@ HTTP-only browser cookie. The login response contains only the public user profi
 If running outside Compose, run the backend on port 8000, then run `npm run dev`
 in `frontend`; Vite forwards `/api` requests to the backend.
 
-## Project hardware unit requests
+## Two hardware units
 
-In the `swe_lab` database, create a collection named exactly `HW Allocation`.
-Paste the two documents from [`data/hw_units_seed.json`](data/hw_units_seed.json)
-into that collection, one document at a time. Each starts with
-`"status": "available"`. The Create a project form lists available units.
-When a user chooses one, the API atomically marks it allocated and writes the
-user ID, project ID, and a new allocation ID to the unit document. The project
-also stores that allocation ID and displays it on the project page. A second
-request for the same unit returns `409`.
+The app uses two individual items in the `HW Allocation` MongoDB collection:
+Arduino Kit 1 and Raspberry Pi Kit 1. A fresh database gets these two records
+automatically. Each item has one available unit. The project page shows `1 / 1`
+when it is available and `0 / 1` when it is checked out.
 
-## Hardware pool
+Create a project with a unique Project ID, then check out either item from the
+project page. A second checkout of an allocated item returns `409`. Any member
+of the same project can check it in, including a member who did not check it
+out. The Inventory page shows the holder and project for each item. State is
+stored in Atlas and survives logout and login.
 
-Hardware sets live in the `hardware_sets` collection. Each set has a total
-`capacity`, the units still `available` in the pool, and `max_per_user`, the
-most units one user may hold at once. The `allocations` collection links a
-user ID to a hardware set and the number of units that user holds.
-
-| Endpoint | Purpose |
-| --- | --- |
-| `GET /api/hardware` | List sets; `held` is what the logged-in user holds |
-| `POST /api/hardware` | Create a set: `{"name", "capacity", "max_per_user"}` |
-| `GET /api/hardware/{id}/allocations` | Which users hold units of a set |
-| `POST /api/hardware/{id}/checkout` | Claim units: `{"quantity"}` |
-| `POST /api/hardware/{id}/checkin` | Return units to the pool: `{"quantity"}` |
-
-A checkout that would exceed the units available or the per-user cap, or a
-check-in of more units than the user holds, returns `409`. An unknown user or
-hardware set returns `404`.
+The API uses `GET /api/units` and
+`POST /api/projects/{project_id}/units/{unit_id}/checkout` or `/checkin`.
+Project creators can delete a project after its units are checked in. A deleted
+project disappears from every member's list without affecting other projects.
 
 ## Demo data
 
 After setting `MONGODB_URI`, run `python -m scripts.seed_demo`. It adds the five
 key-value demo records (`demo-user-001` through `demo-user-005`), login accounts
-`ada`, `grace` and `alan` (password `password123`), four hardware sets, and a
-few allocations. Re-running it resets the demo hardware pool.
+`ada`, `grace` and `alan` (password `password123`), and the two hardware units.
