@@ -1,5 +1,5 @@
 services:
-  backend:
+  app:
     build: .
     environment:
       MONGODB_URI: ${MONGODB_URI:?Set MONGODB_URI in .env to your Atlas connection string}
@@ -12,10 +12,3 @@ services:
       interval: 5s
       timeout: 5s
       retries: 12
-
-  frontend:
-    build: ./frontend
-    environment:
-      API_PROXY_TARGET: http://backend:8000
-    ports:
-      - "5173:5173"

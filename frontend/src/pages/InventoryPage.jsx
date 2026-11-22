@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import Button from '../components/Button.jsx'
-import { api } from '../mockApi.js'
+import { api } from '../api.js'
 
 export default function InventoryPage() {
   const [inventory, setInventory] = useState(null)
@@ -22,15 +22,14 @@ export default function InventoryPage() {
 
   useEffect(() => { refresh() }, [refresh])
 
-  const units = inventory?.units || []
-  const availableUnits = units.filter((unit) => unit.status === 'available').length
+  const sets = inventory?.sets || []
 
   return (
     <div>
       <div className="inventory-heading">
         <div>
           <h1>Inventory</h1>
-          <p className="project-description">Current availability and checkout holders.</p>
+          <p className="project-description">Availability of each hardware set and which projects hold units.</p>
         </div>
         <Button variant="ghost" onClick={refresh} disabled={refreshing}>
           {refreshing ? 'Refreshing...' : 'Refresh'}
@@ -41,29 +40,34 @@ export default function InventoryPage() {
       {inventory && (
         <>
           <div className="inventory-summary">
-            <div><strong>{availableUnits} / {units.length}</strong><span>individual units available</span></div>
+            {sets.map((set) => (
+              <div key={set.id}>
+                <strong>{set.available} / {set.capacity}</strong>
+                <span>{set.name} available</span>
+              </div>
+            ))}
           </div>
 
-          <section>
-            <h2>Individual units</h2>
-            {units.length === 0 ? <p className="form-note">No individual units have been added.</p> : (
-              <div className="table-scroll">
-                <table className="hw-table">
-                  <thead><tr><th>Unit</th><th>Status</th><th>Checked out by</th><th>Project</th></tr></thead>
-                  <tbody>
-                    {units.map((unit) => (
-                      <tr key={unit.id}>
-                        <td><strong>{unit.name}</strong><small>{unit.id}</small></td>
-                        <td><span className={`inventory-status ${unit.status === 'available' ? 'is-available' : 'is-allocated'}`}>{unit.status}</span></td>
-                        <td>{unit.holder || '—'}</td>
-                        <td>{unit.projectId ? <Link to={`/projects/${unit.projectId}`}>{unit.projectName || unit.projectId}</Link> : '—'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
+          {sets.map((set) => (
+            <section key={set.id}>
+              <h2>{set.name} <small className="form-note">({set.id})</small></h2>
+              {set.holders.length === 0 ? <p className="form-note">No units checked out.</p> : (
+                <div className="table-scroll">
+                  <table className="hw-table">
+                    <thead><tr><th>Project</th><th>Units checked out</th></tr></thead>
+                    <tbody>
+                      {set.holders.map((holder) => (
+                        <tr key={holder.projectId}>
+                          <td><Link to={`/projects/${holder.projectId}`}>{holder.projectName}</Link><small>{holder.projectId}</small></td>
+                          <td>{holder.quantity}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+          ))}
         </>
       )}
     </div>

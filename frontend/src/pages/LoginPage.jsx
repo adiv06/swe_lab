@@ -4,12 +4,12 @@ import AuthLayout from '../components/AuthLayout.jsx'
 import Button from '../components/Button.jsx'
 import FormField from '../components/FormField.jsx'
 import { useAuth } from '../auth/AuthContext.jsx'
-import { api } from '../mockApi.js'
+import { api } from '../api.js'
 import ServiceStatus from '../ServiceStatus.jsx'
 
 const FEATURES = [
   { icon: '✓', text: 'Real-time available units per hardware set' },
-  { icon: '↻', text: 'Simple checkout / check-in with per-user caps' },
+  { icon: '↻', text: 'Check out and check in any number of units' },
   { icon: '◎', text: 'A clear record of who holds what' },
 ]
 

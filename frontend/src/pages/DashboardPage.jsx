@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import Button from '../components/Button.jsx'
 import InlineCreateForm from '../components/InlineCreateForm.jsx'
 import ProjectList from '../components/ProjectList.jsx'
-import { api } from '../mockApi.js'
+import { api } from '../api.js'
 
 export default function DashboardPage() {
   const [myProjects, setMyProjects] = useState([])
@@ -20,11 +20,11 @@ export default function DashboardPage() {
     refresh().catch((err) => setError(err.message))
   }, [])
 
-  async function handleCreate({ id, name }) {
+  async function handleCreate({ id, name, description }) {
     if (!/^[a-zA-Z0-9_-]{3,64}$/.test(id.trim())) throw new Error('Project ID must be 3–64 letters, numbers, underscores, or hyphens')
     if (!name.trim()) throw new Error('name is required')
     try {
-      await api.createProject(id.trim(), name.trim())
+      await api.createProject(id.trim(), name.trim(), description.trim())
     } catch (err) {
       await refresh()
       throw err
@@ -66,6 +66,7 @@ export default function DashboardPage() {
           fields={[
             { name: 'id', placeholder: 'Project ID (unique)' },
             { name: 'name', placeholder: 'Project name' },
+            { name: 'description', placeholder: 'Description (optional)' },
           ]}
           submitLabel="Create"
           onSubmit={handleCreate}

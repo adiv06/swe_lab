@@ -29,11 +29,11 @@ def main() -> None:
             upsert=True,
         )
 
-    store.units.list()
+    store.hardware.list()
 
     print(
         f"Seeded {len(DEMO_USERS)} demo records, {len(DEMO_ACCOUNTS)} accounts "
-        f"(password '{DEMO_PASSWORD}'), and two hardware units"
+        f"(password '{DEMO_PASSWORD}'), and hardware sets HWSet1/HWSet2"
     )
 
 

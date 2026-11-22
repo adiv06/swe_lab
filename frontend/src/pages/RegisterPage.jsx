@@ -4,7 +4,7 @@ import AuthLayout from '../components/AuthLayout.jsx'
 import Button from '../components/Button.jsx'
 import FormField from '../components/FormField.jsx'
 import { useAuth } from '../auth/AuthContext.jsx'
-import { api } from '../mockApi.js'
+import { api } from '../api.js'
 import ServiceStatus from '../ServiceStatus.jsx'
 
 const FEATURES = [
