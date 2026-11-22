@@ -1,7 +1,6 @@
-"""Small HTTP API for storing JSON values in MongoDB."""
+"""Hardware Allocator API: accounts, projects and hardware sets in MongoDB."""
 
 import os
-import uuid
 from functools import lru_cache
 
 from fastapi import Cookie, Depends, FastAPI, HTTPException, Response, status
@@ -14,8 +13,8 @@ from pymongo.errors import DuplicateKeyError, PyMongoError
 
 from app.auth import AuthStore, SESSION_DAYS
 from app.hardware import HardwareError
-from app.projects import ProjectStore
-from app.units import UnitStore
+from app.hardware_sets import HardwareSetStore
+from app.projects import ProjectStore, checked_out
 
 
 class ValuePayload(BaseModel):
@@ -57,52 +56,58 @@ class AuthResponse(BaseModel):
 
 
 class ProjectPayload(BaseModel):
-    id: str | None = Field(default=None, pattern=r"^[a-zA-Z0-9_-]{3,64}$")
+    id: str = Field(pattern=r"^[a-zA-Z0-9_-]{3,64}$")
     name: str = Field(min_length=1, max_length=100)
-    hardware_unit_id: str | None = None
+    description: str = Field(default="", max_length=500)
+
+
+class QuantityPayload(BaseModel):
+    quantity: int = Field(ge=1, le=1_000_000)
 
 
 class Project(BaseModel):
     id: str
     name: str
+    description: str = ""
     creatorId: str
     memberIds: list[str]
     isMember: bool
-    hardwareUnitId: str | None = None
-    hardwareUnitName: str | None = None
-    allocationId: str | None = None
+    hardware: dict[str, int] = {}
 
 
-class AvailableUnit(BaseModel):
+class HardwareSet(BaseModel):
     id: str
     name: str
+    capacity: int
+    available: int
 
 
-class UnitStatus(AvailableUnit):
-    status: str
-    projectId: str | None = None
+class CheckoutResult(BaseModel):
+    project: Project
+    hardwareSet: HardwareSet
 
 
-def unit_status(document: dict) -> UnitStatus:
-    return UnitStatus(
-        id=document["_id"],
-        name=document["name"],
-        status=document.get("status", "unknown"),
-        projectId=document.get("allocated_project_id"),
-    )
+class InventoryHolder(BaseModel):
+    projectId: str
+    projectName: str
+    quantity: int
 
 
-class InventoryUnit(BaseModel):
-    id: str
-    name: str
-    status: str
-    holder: str | None = None
-    projectId: str | None = None
-    projectName: str | None = None
+class InventorySet(HardwareSet):
+    holders: list[InventoryHolder]
 
 
 class Inventory(BaseModel):
-    units: list[InventoryUnit]
+    sets: list[InventorySet]
+
+
+def public_set(document: dict) -> HardwareSet:
+    return HardwareSet(
+        id=document["_id"],
+        name=document["name"],
+        capacity=document["capacity"],
+        available=document["available"],
+    )
 
 
 def public_user(user: dict) -> PublicUser:
@@ -113,12 +118,11 @@ def public_project(document: dict, user_id: str) -> Project:
     return Project(
         id=document["_id"],
         name=document["name"],
+        description=document.get("description", ""),
         creatorId=document["creator_id"],
         memberIds=document["member_ids"],
         isMember=user_id in document["member_ids"],
-        hardwareUnitId=document.get("hardware_unit_id"),
-        hardwareUnitName=document.get("hardware_unit_name"),
-        allocationId=document.get("allocation_id"),
+        hardware=checked_out(document),
     )
 
 
@@ -129,7 +133,7 @@ class MongoStore:
         self.collection = self.database[collection]
         self.auth = AuthStore(self.database)
         self.projects = ProjectStore(self.database)
-        self.units = UnitStore(self.database)
+        self.hardware = HardwareSetStore(self.database)
 
     def get(self, key: str) -> dict | None:
         return self.collection.find_one({"_id": key}, {"value": 1})
@@ -161,7 +165,7 @@ def get_store() -> MongoStore:
         raise HTTPException(status_code=503, detail="MongoDB unavailable") from exc
 
 
-app = FastAPI(title="MongoDB key-value service")
+app = FastAPI(title="Hardware Allocator")
 if os.path.isdir("frontend/dist/assets"):
     app.mount("/assets", StaticFiles(directory="frontend/dist/assets"), name="assets")
 
@@ -276,96 +280,13 @@ def create_project(
     name = payload.name.strip()
     if not name:
         raise HTTPException(status_code=422, detail="Name is required")
-    project_id = payload.id or uuid.uuid4().hex
-    if store.projects.get(project_id) is not None:
-        raise HTTPException(status_code=409, detail="Project ID already exists")
-    unit = None
-    if payload.hardware_unit_id:
-        unit = store.units.reserve(payload.hardware_unit_id, user["_id"], project_id)
     try:
-        project = store.projects.create(name, user["_id"], project_id, unit)
+        project = store.projects.create(
+            name, user["_id"], payload.id, payload.description.strip()
+        )
     except DuplicateKeyError as exc:
-        if unit:
-            store.units.release(unit["_id"], unit["allocation_id"])
         raise HTTPException(status_code=409, detail="Project ID already exists") from exc
-    except Exception:
-        if unit:
-            store.units.release(unit["_id"], unit["allocation_id"])
-        raise
     return public_project(project, user["_id"])
-
-
-@app.get("/api/units/available", response_model=list[AvailableUnit])
-def list_available_units(
-    _user: dict = Depends(current_user), store: MongoStore = Depends(get_store)
-) -> list[AvailableUnit]:
-    return [AvailableUnit(id=unit["_id"], name=unit["name"]) for unit in store.units.available()]
-
-
-@app.get("/api/units", response_model=list[UnitStatus])
-def list_units(_user: dict = Depends(current_user), store: MongoStore = Depends(get_store)) -> list[UnitStatus]:
-    return [unit_status(unit) for unit in store.units.list()]
-
-
-@app.get("/api/inventory", response_model=Inventory)
-def get_inventory(
-    _user: dict = Depends(current_user), store: MongoStore = Depends(get_store)
-) -> Inventory:
-    units = store.units.list()
-    user_ids = {unit.get("allocated_user_id") for unit in units}
-    user_ids.discard(None)
-    users = {
-        user["_id"]: user["name"]
-        for user in store.auth.users.find({"_id": {"$in": list(user_ids)}})
-    }
-    projects = {project["_id"]: project["name"] for project in store.projects.list()}
-    return Inventory(
-        units=[
-            InventoryUnit(
-                id=unit["_id"],
-                name=unit["name"],
-                status=unit.get("status", "unknown"),
-                holder=users.get(unit["allocated_user_id"], unit["allocated_user_id"])
-                if unit.get("allocated_user_id") else None,
-                projectId=unit.get("allocated_project_id"),
-                projectName=projects.get(unit.get("allocated_project_id")),
-            )
-            for unit in units
-        ],
-    )
-
-
-@app.post("/api/projects/{project_id}/hardware/release", response_model=Project)
-def release_project_hardware(
-    project_id: str,
-    user: dict = Depends(current_user),
-    store: MongoStore = Depends(get_store),
-) -> Project:
-    project = store.projects.get(project_id)
-    if project is None:
-        raise HTTPException(status_code=404, detail="Project not found")
-    if user["_id"] not in project["member_ids"]:
-        raise HTTPException(status_code=403, detail="Only project members can release hardware")
-    if not project.get("hardware_unit_id") or not project.get("allocation_id"):
-        raise HTTPException(status_code=409, detail="No hardware is assigned to this project")
-
-    unit = {
-        "_id": project["hardware_unit_id"],
-        "name": project["hardware_unit_name"],
-        "allocation_id": project["allocation_id"],
-    }
-    cleared = store.projects.clear_hardware(project_id, unit["allocation_id"])
-    if cleared is None:
-        raise HTTPException(status_code=409, detail="Hardware assignment changed; refresh the project")
-    try:
-        released = store.units.release(unit["_id"], unit["allocation_id"], project_id)
-    except Exception:
-        store.projects.restore_hardware(project_id, unit)
-        raise
-    if not released:
-        store.projects.restore_hardware(project_id, unit)
-        raise HTTPException(status_code=409, detail="Hardware allocation changed; refresh the project")
-    return public_project(cleared, user["_id"])
 
 
 @app.get("/api/projects/{project_id}", response_model=Project)
@@ -375,6 +296,18 @@ def get_project(
     store: MongoStore = Depends(get_store),
 ) -> Project:
     project = store.projects.get(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return public_project(project, user["_id"])
+
+
+@app.post("/api/projects/{project_id}/join", response_model=Project)
+def join_project(
+    project_id: str,
+    user: dict = Depends(current_user),
+    store: MongoStore = Depends(get_store),
+) -> Project:
+    project = store.projects.join(project_id, user["_id"])
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
     return public_project(project, user["_id"])
@@ -391,22 +324,10 @@ def delete_project(
         raise HTTPException(status_code=404, detail="Project not found")
     if project["creator_id"] != user["_id"]:
         raise HTTPException(status_code=403, detail="Only the project creator can delete it")
-    if store.units.allocated_to_project(project_id):
-        raise HTTPException(status_code=409, detail="Check in all hardware units before deleting this project")
+    if checked_out(project):
+        raise HTTPException(status_code=409, detail="Check in all hardware before deleting this project")
     if not store.projects.delete_by_creator(project_id, user["_id"]):
         raise HTTPException(status_code=409, detail="Project changed; refresh and try again")
-
-
-@app.post("/api/projects/{project_id}/join", response_model=Project)
-def join_project(
-    project_id: str,
-    user: dict = Depends(current_user),
-    store: MongoStore = Depends(get_store),
-) -> Project:
-    project = store.projects.join(project_id, user["_id"])
-    if project is None:
-        raise HTTPException(status_code=404, detail="Project not found")
-    return public_project(project, user["_id"])
 
 
 def require_project_member(project_id: str, user: dict, store: MongoStore) -> dict:
@@ -414,35 +335,84 @@ def require_project_member(project_id: str, user: dict, store: MongoStore) -> di
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
     if user["_id"] not in project["member_ids"]:
-        raise HTTPException(status_code=403, detail="Join the project before managing its hardware")
+        raise HTTPException(status_code=403, detail="Join this project before managing its hardware")
     return project
 
 
-@app.post("/api/projects/{project_id}/units/{unit_id}/checkout", response_model=UnitStatus)
-def checkout_unit(
-    project_id: str, unit_id: str,
-    user: dict = Depends(current_user), store: MongoStore = Depends(get_store),
-) -> UnitStatus:
+@app.get("/api/hardware", response_model=list[HardwareSet])
+def list_hardware(
+    _user: dict = Depends(current_user), store: MongoStore = Depends(get_store)
+) -> list[HardwareSet]:
+    return [public_set(document) for document in store.hardware.list()]
+
+
+@app.post("/api/projects/{project_id}/hardware/{set_id}/checkout", response_model=CheckoutResult)
+def checkout_hardware(
+    project_id: str,
+    set_id: str,
+    payload: QuantityPayload,
+    user: dict = Depends(current_user),
+    store: MongoStore = Depends(get_store),
+) -> CheckoutResult:
     require_project_member(project_id, user, store)
-    return unit_status(store.units.reserve(unit_id, user["_id"], project_id))
+    hardware_set = store.hardware.take(set_id, payload.quantity)
+    try:
+        project = store.projects.add_hardware(project_id, user["_id"], set_id, payload.quantity)
+    except Exception:
+        store.hardware.give_back(set_id, payload.quantity)
+        raise
+    if project is None:
+        store.hardware.give_back(set_id, payload.quantity)
+        raise HTTPException(status_code=403, detail="Join this project before managing its hardware")
+    return CheckoutResult(project=public_project(project, user["_id"]), hardwareSet=public_set(hardware_set))
 
 
-@app.post("/api/projects/{project_id}/units/{unit_id}/checkin", response_model=UnitStatus)
-def checkin_unit(
-    project_id: str, unit_id: str,
-    user: dict = Depends(current_user), store: MongoStore = Depends(get_store),
-) -> UnitStatus:
+@app.post("/api/projects/{project_id}/hardware/{set_id}/checkin", response_model=CheckoutResult)
+def checkin_hardware(
+    project_id: str,
+    set_id: str,
+    payload: QuantityPayload,
+    user: dict = Depends(current_user),
+    store: MongoStore = Depends(get_store),
+) -> CheckoutResult:
     project = require_project_member(project_id, user, store)
-    unit = store.units.get(unit_id)
-    if unit is None:
-        raise HTTPException(status_code=404, detail="Hardware unit not found")
-    if unit.get("allocated_project_id") != project_id or unit.get("status") != "allocated":
-        raise HTTPException(status_code=409, detail="This project does not hold that hardware unit")
-    if project.get("hardware_unit_id") == unit_id and project.get("allocation_id") == unit.get("allocation_id"):
-        release_project_hardware(project_id, user, store)
-    elif not store.units.release(unit_id, unit["allocation_id"], project_id):
-        raise HTTPException(status_code=409, detail="Hardware allocation changed; refresh and try again")
-    return unit_status(store.units.get(unit_id))
+    hardware_set = store.hardware.get(set_id)
+    if hardware_set is None:
+        raise HTTPException(status_code=404, detail="Hardware set not found")
+    updated = store.projects.remove_hardware(project_id, user["_id"], set_id, payload.quantity)
+    if updated is None:
+        held = checked_out(store.projects.get(project_id) or project).get(set_id, 0)
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot check in {payload.quantity} units of {hardware_set['name']}: "
+            f"this project only has {held} checked out",
+        )
+    hardware_set = store.hardware.give_back(set_id, payload.quantity)
+    return CheckoutResult(project=public_project(updated, user["_id"]), hardwareSet=public_set(hardware_set))
+
+
+@app.get("/api/inventory", response_model=Inventory)
+def get_inventory(
+    _user: dict = Depends(current_user), store: MongoStore = Depends(get_store)
+) -> Inventory:
+    projects = store.projects.list()
+    return Inventory(
+        sets=[
+            InventorySet(
+                **public_set(document).model_dump(),
+                holders=[
+                    InventoryHolder(
+                        projectId=project["_id"],
+                        projectName=project["name"],
+                        quantity=checked_out(project)[document["_id"]],
+                    )
+                    for project in projects
+                    if checked_out(project).get(document["_id"])
+                ],
+            )
+            for document in store.hardware.list()
+        ]
+    )
 
 
 @app.get("/health")

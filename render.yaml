@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: hardware-allocator
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: MONGODB_URI
+        sync: false          # Render asks you to paste the Atlas URI on first deploy
+      - key: MONGODB_DATABASE
+        value: swe_lab
+      - key: MONGODB_COLLECTION
+        value: items
+      - key: SESSION_COOKIE_SECURE
+        value: "true"        # the onrender.com URL is HTTPS

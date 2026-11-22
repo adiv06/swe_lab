@@ -1,106 +1,103 @@
-# MongoDB key-value service
+# Hardware Allocator (swe_lab)
 
-A small HTTP service that stores one JSON value under each string key in MongoDB.
-The service owns a single database and collection, configured through environment
-variables. It creates or replaces a value when you call `PUT`.
+A web app where users sign up, create or join projects, and check hardware in
+and out of two shared hardware sets. FastAPI + MongoDB Atlas on the back end,
+React (Vite) on the front end, deployed as **one** Docker service on Render.
 
-## Run the app with Atlas
+## How it works
 
-Create an untracked `.env` file from `.env.example` and set `MONGODB_URI` to
-your Atlas connection string. Start Docker Desktop, then run:
+| Thing | Where it lives |
+| --- | --- |
+| Users (hashed passwords) | `users` collection |
+| Login sessions (HTTP-only cookie `hw_session`) | `sessions` collection |
+| Projects: `_id` = project ID, `member_ids`, `hardware: {"HWSet1": n, ...}` | `projects` collection |
+| Hardware sets: `capacity`, `available` | `hardware_sets` collection |
 
-```powershell
-docker compose up --build
-```
+A fresh database automatically gets **HWSet1** and **HWSet2**, each with
+capacity 100. Checkout and check-in use conditional atomic updates, so:
 
-Open `http://localhost:5173/register` to create an account, then use the login
-page. Compose starts the frontend and API. It requires `MONGODB_URI` and does
-not start a local MongoDB server. Stop the stack with `Ctrl+C`.
-The login and registration forms show database status and stay disabled until
-MongoDB responds. The app checks status every five seconds and blocks its main
-pages while the database is unavailable. The API also checks the connection on
-every login and registration request.
+- you can't check out more than is available (409, "only N available");
+- you can't check in more than your project holds (409);
+- only project members can check hardware in or out (403 until you join);
+- any member can check in units another member checked out;
+- everything is in Atlas, so it survives logout, login and redeploys.
 
-Accounts, sessions, projects, and the two hardware units go
-through the API to Atlas. Existing projects previously stored in a browser are
-not automatically imported. The status indicator reflects the Atlas connection.
-Keep `.env` out of Git.
+## Run locally
 
-## Connect to an existing MongoDB cluster
+1. Copy `.env.example` to `.env` and set `MONGODB_URI` to your Atlas string
+   (URL-encode special characters in the password). Never commit `.env`.
+2. With Docker Desktop running:
 
-Set `MONGODB_URI` to the connection string for your MongoDB cluster. Use the
-credentials supplied for that cluster; URL-encode special characters in the
-username or password. The supplied connection string template is in
-[`.env.example`](.env.example). Do not commit a filled-in `.env` file.
+   ```powershell
+   docker compose up --build
+   ```
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `MONGODB_URI` | Required | MongoDB connection string |
-| `MONGODB_DATABASE` | `swe_lab` | Database name |
-| `MONGODB_COLLECTION` | `items` | Collection name |
+   Open http://localhost:8000.
 
-With Python 3.12 or newer:
+To work on the frontend with hot reload instead, run the API on port 8000
+(`uvicorn app.main:app --reload`) and, in `frontend/`, `npm install` then
+`npm run dev`, and open http://localhost:5173. Vite forwards `/api` to port 8000.
 
-```powershell
-python -m venv .venv
-.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-$env:MONGODB_URI = 'mongodb+srv://USERNAME:PASSWORD@cluster0.ukanywx.mongodb.net/?appName=Cluster0'
-uvicorn app.main:app --host 0.0.0.0 --port 8000
-```
+Tests: `pip install -r requirements.txt pytest httpx` then `python -m pytest`.
 
-Or build and run the container after setting `MONGODB_URI` in your shell:
+## Deploy on Render (instead of Heroku)
 
-```powershell
-docker build -t mongo-key-value .
-docker run --rm -p 8000:8000 -e MONGODB_URI -e MONGODB_DATABASE=swe_lab -e MONGODB_COLLECTION=items mongo-key-value
-```
+1. **Atlas → Network Access → Add IP Address → `0.0.0.0/0`.** Render's IPs
+   change, so without this every login fails with "MongoDB unavailable".
+2. Push this repo to GitHub.
+3. At https://render.com, sign in with GitHub → **New → Blueprint** → pick
+   this repo. Render reads `render.yaml` and asks for `MONGODB_URI`: paste your
+   Atlas string.
+4. Wait for the build, then open the `https://<name>.onrender.com` URL.
+   `/health` should return `{"status":"ok"}`.
+
+The free plan sleeps after 15 minutes with no traffic and takes about a minute
+to wake, so open the site a couple of minutes before a demo.
 
 ## API
 
-`PUT /items/{key}` stores or replaces a JSON value. The request body must have
-a `value` field, which can hold any JSON value, including `null`. The response
-is the same JSON body. `GET /items/{key}` returns that body, or `404` if the
-key does not exist. `GET /health` checks the database connection. Connection
-errors return `503`.
+All `/api` routes except register/login/status need the login cookie.
 
-```powershell
-curl.exe -X PUT http://localhost:8000/items/example -H 'Content-Type: application/json' -d '{"value":{"name":"Ada","active":true}}'
-curl.exe http://localhost:8000/items/example
-curl.exe http://localhost:8000/health
-```
+| Method & path | Body | Notes |
+| --- | --- | --- |
+| `POST /api/auth/register` | `{name, username, password}` | username 3–32 letters/digits/`_`, password ≥ 8 chars; 409 if taken |
+| `POST /api/auth/login` | `{username, password}` | 401 on a wrong username/password |
+| `POST /api/auth/logout` | | |
+| `GET /api/projects` | | all projects, with `isMember` |
+| `POST /api/projects` | `{id, name, description?}` | 409 if the ID exists |
+| `POST /api/projects/{id}/join` | | 404 if no such project |
+| `GET /api/hardware` | | `[{id, name, capacity, available}]` |
+| `POST /api/projects/{id}/hardware/{setId}/checkout` | `{quantity}` | 403 non-member, 409 more than available |
+| `POST /api/projects/{id}/hardware/{setId}/checkin` | `{quantity}` | 409 more than the project holds |
+| `GET /api/inventory` | | each set with the projects holding units |
+| `DELETE /api/projects/{id}` | | creator only, after all hardware is checked in |
 
-Interactive API documentation is at `http://localhost:8000/docs`.
+Interactive docs: `/docs`.
 
-## Username and password login
+## Checkpoint test script
 
-The frontend registration and login forms call `POST /api/auth/register` and
-`POST /api/auth/login`. Users are stored in the `users` MongoDB collection with
-hashed passwords. Login sessions are stored in `sessions` and held in an
-HTTP-only browser cookie. The login response contains only the public user profile.
-If running outside Compose, run the backend on port 8000, then run `npm run dev`
-in `frontend`; Vite forwards `/api` requests to the backend.
+Use two browsers (or one normal window and one private window) for the two users.
 
-## Two hardware units
-
-The app uses two individual items in the `HW Allocation` MongoDB collection:
-Arduino Kit 1 and Raspberry Pi Kit 1. A fresh database gets these two records
-automatically. Each item has one available unit. The project page shows `1 / 1`
-when it is available and `0 / 1` when it is checked out.
-
-Create a project with a unique Project ID, then check out either item from the
-project page. A second checkout of an allocated item returns `409`. Any member
-of the same project can check it in, including a member who did not check it
-out. The Inventory page shows the holder and project for each item. State is
-stored in Atlas and survives logout and login.
-
-The API uses `GET /api/units` and
-`POST /api/projects/{project_id}/units/{unit_id}/checkout` or `/checkin`.
-Project creators can delete a project after its units are checked in. A deleted
-project disappears from every member's list without affecting other projects.
+| # | Do this | Expect |
+| --- | --- | --- |
+| 1 | Register `user1` (password ≥ 8 chars) | Logged in on the Projects page |
+| 2 | Log out, log in with the right password | Projects page |
+| 3 | Log in with a wrong password | "Invalid username or password" |
+| 4 | Create project ID `p100` | Appears under My projects |
+| 5 | Create `p100` again | "Project ID already exists" |
+| 6 | Join an existing project by ID (e.g. one user2 made) | Moves to My projects |
+| 7–8 | Open `p100`, check out 10 of HWSet1 and 20 of HWSet2 | Success message |
+| 9 | Look at Available | HWSet1 90/100, HWSet2 80/100 |
+| 10 | Check out 1000 of HWSet1 | "only 90 available", nothing changes |
+| 11–12 | Check in 1 of HWSet1 | HWSet1 91/100 |
+| 13–14 | Log out, log back in, open `p100` | Same numbers as before |
+| 15 | TA registers `user2` in the other browser | Logged in |
+| 16 | TA creates `p100` | "Project ID already exists" |
+| 17 | TA opens `p100` before joining | Must join first (checkout returns 403); then Join |
+| 18–19 | TA checks in 20 of HWSet2 | HWSet2 back to 100/100 |
+| 20 | TA checks out hardware | Available drops |
 
 ## Demo data
 
-After setting `MONGODB_URI`, run `python -m scripts.seed_demo`. It adds the five
-key-value demo records (`demo-user-001` through `demo-user-005`), login accounts
-`ada`, `grace` and `alan` (password `password123`), and the two hardware units.
+`python -m scripts.seed_demo` adds accounts `ada`, `grace` and `alan`
+(password `password123`) and creates the hardware sets.
